@@ -1,9 +1,12 @@
 #![allow(unused)]
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use ts_rs::TS;
 use winit::dpi::{LogicalPosition, LogicalSize};
 use winit::dpi::{Position, Size};
 use wry::dpi::{PhysicalPosition, PhysicalSize};
+
+use crate::event::TS_PATH;
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub enum WindowSrc {
@@ -15,7 +18,8 @@ impl WindowSrc {
         WindowSrc::Web(url.into(), page.into())
     }
 }
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Deserialize, TS, Serialize, Debug, Clone)]
+#[ts(export_to=TS_PATH)]
 pub struct WindowSize {
     pub width: i32,
     pub height: i32,
@@ -37,7 +41,8 @@ impl WindowSize {
         })
     }
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, TS, Serialize, Deserialize)]
+#[ts(export_to=TS_PATH)]
 pub struct WindowPosition {
     pub x: f32,
     pub y: f32,
@@ -59,7 +64,8 @@ impl WindowPosition {
         })
     }
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, TS, Clone, Serialize, Deserialize)]
+#[ts(export_to=TS_PATH)]
 pub enum ToolbarPosition {
     TopLeft,
     TopRight,
@@ -67,9 +73,11 @@ pub enum ToolbarPosition {
     BottomRight,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(default)]
+#[ts(export_to=TS_PATH)]
 pub struct ToolbarPanel {
+    #[ts(optional)]
     pub max_width: Option<u32>,
     pub height: u32,
     pub padding: u32,

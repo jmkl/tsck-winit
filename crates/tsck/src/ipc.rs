@@ -1,5 +1,8 @@
 #![allow(unused)]
+use anyhow::bail;
 use serde::{Deserialize, Serialize};
+
+use crate::{dp, log_error};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IpcRequest<T = serde_json::Value> {
@@ -81,5 +84,25 @@ impl<T: Serialize> IpcResponse<T> {
             data: None,
             error: Some(error.into()),
         }
+    }
+}
+
+pub struct IpcHelper;
+impl IpcHelper {
+    pub fn compile(
+        payload_type: impl Into<String>,
+        data: impl Serialize,
+    ) -> anyhow::Result<String> {
+        let payload = serde_json::to_string(&payload_type.into())?;
+        let json = match serde_json::to_string(&data) {
+            Ok(j) => j,
+            Err(e) => {
+                bail!("Parsing failed... {} ", e)
+            }
+        };
+        Ok(format!(
+            "window.dispatchEvent(new CustomEvent({}, {{ detail: {} }}));",
+            payload, json
+        ))
     }
 }

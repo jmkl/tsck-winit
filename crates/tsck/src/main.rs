@@ -10,6 +10,7 @@ use crate::event::ChannelEvent;
 use crate::hotkee::spawn_hotkee;
 use crate::utils::winview_util::webview_bounds;
 use flume::unbounded;
+use parking_lot::Mutex;
 use std::sync::Arc;
 use winit::event_loop::EventLoop;
 use winit::window::Window;
@@ -22,6 +23,7 @@ struct WindowState {
     webview: Arc<WebView>,
     panel: Arc<Option<WebView>>,
     window_conf: Arc<WindowConf>,
+    on_top: Arc<Mutex<bool>>,
 }
 
 #[allow(unused)]
@@ -43,6 +45,7 @@ impl WindowState {
             webview,
             panel,
             window_conf,
+            on_top: Arc::new(Mutex::new(false)),
         };
         Ok(state)
     }

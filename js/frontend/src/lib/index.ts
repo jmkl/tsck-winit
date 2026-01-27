@@ -4,7 +4,7 @@ interface ListenHandler<T> {
 	(payload: T): void;
 }
 
-interface UnlistenFn {
+export interface UnlistenFn {
 	(): void;
 }
 
@@ -13,16 +13,11 @@ interface TsckWindow extends Window {
 		invoke: (
 			event: string,
 			data?: any,
-			callback?: (error: string | null, result: any) => void,
+			callback?: (error: string | null, result: any) => void
 		) => number;
 		call: (event: string, data?: any) => Promise<any>;
 		send: (event: string, data?: any) => void;
-		respond: (
-			id: number,
-			success: boolean,
-			data: any,
-			error: string | null,
-		) => void;
+		respond: (id: number, success: boolean, data: any, error: string | null) => void;
 		postMessage: ((message: string) => void) | null;
 	};
 	onIpc: (event: string, handler: (detail: any) => void) => void;
@@ -37,14 +32,12 @@ declare const window: TsckWindow;
 // ============================================================================
 
 function checkTsck(): boolean {
-	if (typeof window === "undefined") {
+	if (typeof window === 'undefined') {
 		return false;
 	}
 
 	if (!window.tsck) {
-		console.error(
-			"tsck not initialized. Make sure the tsck IPC script is loaded.",
-		);
+		console.error('tsck not initialized. Make sure the tsck IPC script is loaded.');
 		return false;
 	}
 
@@ -63,24 +56,16 @@ function checkTsck(): boolean {
  *   else console.log(result);
  * });
  */
-export function invoke<T = any>(
-	cmd: string,
-	args?: any,
-	callback?: InvokeCallback<T>,
-): number {
+export function invoke<T = any>(cmd: string, args?: any, callback?: InvokeCallback<T>): number {
 	if (!checkTsck()) {
-		callback?.("Tsck not available", null);
+		callback?.('Tsck not available', null);
 		return -1;
 	}
 
 	if (callback) {
-		return window.tsck.invoke(
-			cmd,
-			args,
-			(error: string | null, result: any) => {
-				callback(error, result as T);
-			},
-		);
+		return window.tsck.invoke(cmd, args, (error: string | null, result: any) => {
+			callback(error, result as T);
+		});
 	} else {
 		return window.tsck.invoke(cmd, args);
 	}
@@ -91,12 +76,9 @@ export function invoke<T = any>(
  * @example
  * const user = await invokeAsync<User>('get-user', { id: 123 });
  */
-export async function invokeAsync<T = any>(
-	cmd: string,
-	args?: any,
-): Promise<T> {
+export async function invokeAsync<T = any>(cmd: string, args?: any): Promise<T> {
 	if (!checkTsck()) {
-		throw new Error("Tsck not available");
+		throw new Error('Tsck not available');
 	}
 
 	return window.tsck.call(cmd, args) as Promise<T>;
@@ -121,7 +103,7 @@ export function invokePayload<T = any>(payload: T): void {
 	}
 
 	// Send to a specific frontend event handler
-	window.tsck.send("frontend:payload|event", payload);
+	window.tsck.send('frontend:payload|event', payload);
 }
 
 /**
@@ -133,16 +115,13 @@ export function invokePayload<T = any>(payload: T): void {
  * });
  */
 export async function invokePayloadAsync<TPayload = any, TResult = any>(
-	payload: TPayload,
+	payload: TPayload
 ): Promise<TResult> {
 	if (!checkTsck()) {
-		throw new Error("Tsck not available");
+		throw new Error('Tsck not available');
 	}
 
-	return window.tsck.call(
-		"frontend:payload|event",
-		payload,
-	) as Promise<TResult>;
+	return window.tsck.call('frontend:payload|event', payload) as Promise<TResult>;
 }
 
 /**
@@ -157,19 +136,19 @@ export async function invokePayloadAsync<TPayload = any, TResult = any>(
  */
 export function invokePayloadWithCallback<TPayload = any, TResult = any>(
 	payload: TPayload,
-	callback: InvokeCallback<TResult>,
+	callback: InvokeCallback<TResult>
 ): number {
 	if (!checkTsck()) {
-		callback("Tsck not available", null);
+		callback('Tsck not available', null);
 		return -1;
 	}
 
 	return window.tsck.invoke(
-		"frontend:payload|event",
+		'frontend:payload|event',
 		payload,
 		(error: string | null, result: any) => {
 			callback(error, result as TResult);
-		},
+		}
 	);
 }
 
@@ -186,12 +165,9 @@ export function invokePayloadWithCallback<TPayload = any, TResult = any>(
  *
  * // Later: unlisten();
  */
-export function listen<E extends string, T = any>(
-	event: E,
-	handler: ListenHandler<T>,
-): UnlistenFn {
-	if (typeof window === "undefined") {
-		console.warn("Cannot listen in SSR context");
+export function listen<E extends string, T = any>(event: E, handler: ListenHandler<T>): UnlistenFn {
+	if (typeof window === 'undefined') {
+		console.warn('Cannot listen in SSR context');
 		return () => {};
 	}
 
@@ -228,10 +204,7 @@ export function listen<E extends string, T = any>(
  *   console.log('App is ready:', payload);
  * });
  */
-export function listenOnce<T = any>(
-	event: string,
-	handler: ListenHandler<T>,
-): UnlistenFn {
+export function listenOnce<T = any>(event: string, handler: ListenHandler<T>): UnlistenFn {
 	let unlisten: UnlistenFn;
 
 	const wrappedHandler = (payload: T) => {
@@ -318,7 +291,7 @@ export async function waitForReady(timeout = 5000): Promise<void> {
 
 	while (!checkTsck()) {
 		if (Date.now() - start > timeout) {
-			throw new Error("Tsck initialization timeout");
+			throw new Error('Tsck initialization timeout');
 		}
 		await new Promise((resolve) => setTimeout(resolve, 100));
 	}
@@ -340,5 +313,5 @@ export default {
 	respond,
 	respondError,
 	isAvailable,
-	waitForReady,
+	waitForReady
 };
