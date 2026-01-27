@@ -1,0 +1,15 @@
+[package]
+name = "tsck"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+flume.workspace = true
+kee = { path = "../../../kee/" }
+parking_lot.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+winit.workspace = true
+wry.workspace = true

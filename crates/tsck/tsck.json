@@ -1,0 +1,58 @@
+{
+	"dev_url": "http://127.0.0.1:5566",
+	"plugins": {
+		"main": {
+			"with_window": true,
+			"custom_script": null,
+			"device_event_filter": false,
+			"window": {
+				"decorations": false,
+				"always_on_top": false,
+				"shadow": false,
+				"window_src": { "Local": "/" }
+			}
+		},
+		"llm": {
+			"with_window": true,
+			"custom_script": null,
+			"device_event_filter": false,
+			"window": {
+				"decorations": false,
+				"always_on_top": false,
+				"auto_launch": false,
+				"window_src": { "Web": ["https://chatgpt.com", "llm"] },
+				"shadow": true,
+				"webview_zoom_factor": 0.8,
+				"toolbar_panel": {
+					"absolute": false
+				},
+				"window_size": {
+					"width": 480,
+					"height": 800
+				}
+			}
+		},
+		"google": {
+			"with_window": true,
+			"custom_script": "scripts/google.js",
+			"device_event_filter": false,
+			"window": {
+				"decorations": false,
+				"always_on_top": false,
+				"auto_launch": false,
+				"window_src": {
+					"Web": ["https://google.com/search?udm=2&q=mia+malkova", "google"]
+				},
+				"shadow": true,
+				"webview_zoom_factor": 0.8,
+				"toolbar_panel": {
+					"absolute": false
+				},
+				"window_size": {
+					"width": 1600,
+					"height": 900
+				}
+			}
+		}
+	}
+}

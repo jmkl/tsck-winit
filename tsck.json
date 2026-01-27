@@ -1,0 +1,6 @@
+{
+	"commands": [
+		{ "exe": "bun", "args": ["run", "--cwd", "js/frontend", "dev"] },
+		{ "exe": "cargo", "args": ["run", "-p", "tsck"] }
+	]
+}

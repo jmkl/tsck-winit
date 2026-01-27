@@ -1,0 +1,181 @@
+@import 'tailwindcss';
+@plugin 'daisyui';
+@font-face {
+	font-family: 'Uni Sans';
+	font-style: normal;
+	font-weight: 900;
+	src: url('./assets/fonts/UniSans-Bold.woff2') format('woff2');
+}
+@font-face {
+	font-family: 'Uni Sans';
+	font-style: normal;
+	font-weight: 600;
+	src: url('./assets/fonts/UniSans-SemiBold.woff2') format('woff2');
+}
+@font-face {
+	font-family: 'Anton';
+	font-style: normal;
+	src: url('./assets/fonts/Anton.woff2') format('woff2');
+}
+@font-face {
+	font-family: 'Uni Sans';
+	font-style: normal;
+	font-weight: 300;
+	src: url('./assets/fonts/UniSans-Regular.woff2') format('woff2');
+}
+@font-face {
+	font-family: 'Avantt';
+	font-style: normal;
+	font-weight: 300;
+	src: url('./assets/fonts/avantt-medium.woff2') format('woff2');
+}
+@font-face {
+	font-family: 'Avantt';
+	font-style: bold;
+	font-weight: 600;
+	src: url('./assets/fonts/avantt-bold.woff2') format('woff2');
+}
+@font-face {
+	font-family: 'Avantt';
+	font-style: black;
+	font-weight: 900;
+	src: url('./assets/fonts/avantt-extrabold.woff2') format('woff2');
+}
+* {
+	--font-unisans: 'Uni Sans';
+	--font-anton: 'Anton';
+	--font-avantt: 'Avantt';
+}
+@theme {
+	--font-unisans: 'Uni Sans', sans-serif;
+	--font-anton: 'Anton', sans-serif;
+	--font-avantt: 'Avantt', sans-serif;
+	--font-jetbrains: 'JetBrains Mono', sans-serif;
+}
+
+@plugin 'daisyui/theme' {
+	name: 'business';
+	default: true;
+	prefersdark: true;
+	color-scheme: 'dark';
+	--root-bg: transparent;
+	--color-base-100: oklch(28.822% 0.022 277.508);
+	--color-base-200: oklch(26.805% 0.02 277.508);
+	--color-base-300: oklch(24.787% 0.019 277.508);
+	--color-base-content: oklch(97.747% 0.007 106.545);
+	--color-primary: oklch(75.461% 0.183 346.812);
+	--color-primary-content: oklch(15.092% 0.036 346.812);
+	--color-secondary: oklch(74.202% 0.148 301.883);
+	--color-secondary-content: oklch(14.84% 0.029 301.883);
+	--color-accent: oklch(83.392% 0.124 66.558);
+	--color-accent-content: oklch(16.678% 0.024 66.558);
+	--color-neutral: oklch(39.445% 0.032 275.524);
+	--color-neutral-content: oklch(87.889% 0.006 275.524);
+	--color-info: oklch(88.263% 0.093 212.846);
+	--color-info-content: oklch(17.652% 0.018 212.846);
+	--color-success: oklch(87.099% 0.219 148.024);
+	--color-success-content: oklch(17.419% 0.043 148.024);
+	--color-warning: oklch(95.533% 0.134 112.757);
+	--color-warning-content: oklch(19.106% 0.026 112.757);
+	--color-error: oklch(68.22% 0.206 24.43);
+	--color-error-content: oklch(13.644% 0.041 24.43);
+	--radius-selector: 0rem;
+	--radius-field: 0rem;
+	--radius-box: 0rem;
+	--size-selector: 0.1875rem;
+	--size-field: 0.1875rem;
+	--border: 0.5px;
+	--depth: 0;
+	--noise: 0;
+}
+
+@layer utilities {
+	* {
+		scrollbar-width: thin;
+		scrollbar-color: var(--color-error) var(--color-base-300);
+		scrollbar-gutter: inherit;
+	}
+}
+#multislider {
+	--fg: transparent;
+	--bg: transparent;
+	--track-width: 1em;
+	--range-width: 1em;
+	--handle-size: 1em;
+}
+#rfslider {
+	--fg: oklch(68.22% 0.206 24.43);
+	--bg: #525252;
+	--track-width: 1em;
+	--range-width: 1em;
+	--handle-size: 1.5em;
+}
+
+#rfslider,
+#multislider {
+	font-size: 0.6em;
+	--range-slider: var(--bg);
+	--range-range: var(--fg);
+	--range-range-inactive: var(--fg);
+	--range-handle-focus: #fff;
+	--range-handle: #fff;
+	--range-handle-inactive: #fff;
+
+	/* custom colors */
+
+	/* custom aesthetics */
+	--track-padding: 0em;
+	--range-padding: 0em;
+	--track-radius: 1;
+	--range-radius: 1;
+
+	--handle-offset: 1em;
+	--handle-offset-block: 0em;
+	--handle-rotate: 180deg;
+	--me-shadow: none;
+
+	--me-shadows:
+		inset 0 2px 0 0 rgba(255, 255, 255, 0.2), inset 0 -1px 0 0px rgba(0, 0, 0, 0.1),
+		0 2px 4px 0 rgba(0, 0, 0, 0.1);
+
+	&.rangeSlider {
+		margin: 0.5em;
+		height: var(--track-width, 0.5em);
+		border-radius: calc((var(--track-width, 0.5em) / 2) * var(--track-radius, 1));
+		box-shadow: var(--me-shadow);
+		.rangeHandle {
+			height: calc(1.6 * var(--handle-size, 1em));
+			width: auto;
+			aspect-ratio: 1/1;
+			top: 90%;
+			.rangeNub {
+				background: url('data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%206.22%206.56%22%3E%3Cg%3E%3Cpath%20fill%3D%22%23fff%22%20d%3D%22M3.46%2C6.1l2.36-3.23c.09-.12.14-.29.14-.46V.91c0-.36-.22-.66-.49-.66H.75c-.27%2C0-.49.3-.49.66v1.5c0%2C.17.05.34.14.46l2.36%2C3.23c.19.26.51.26.7%2C0Z%22%2F%3E%0A%20%20%20%20%3Cpath%20fill%3D%22%232d2d2d%22%20d%3D%22M3.11%2C6.56c-.21%2C0-.42-.11-.56-.3L.19%2C3.03c-.12-.17-.19-.39-.19-.61V.91C0%2C.4.33%2C0%2C.75%2C0h4.73c.42%2C0%2C.75.4.75.91v1.5c0%2C.23-.07.45-.19.61l-2.36%2C3.23c-.14.19-.34.3-.56.3ZM.75.51c-.11%2C0-.24.17-.24.4v1.5c0%2C.12.03.23.09.31l2.36%2C3.23c.09.12.2.12.29%2C0l2.36-3.23c.06-.08.09-.19.09-.31V.91c0-.23-.12-.4-.24-.4H.75Z%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E')
+					no-repeat center;
+				transform: rotate(var(--handle-rotate));
+			}
+		}
+		.rangeBar {
+			height: var(--range-width, 0.5em);
+			border-radius: calc((var(--range-width, 0.5em) / 2) * var(--range-radius, 1));
+			top: 50%;
+			transform: translateY(-50%);
+			box-shadow: var(--me-shadow);
+		}
+	}
+}
+
+.chat {
+	@apply line-clamp-2;
+	@apply min-h-10;
+	@apply p-1;
+	@apply px-2;
+	@apply font-jetbrains;
+	@apply text-[9px];
+	@apply leading-4;
+	@apply wrap-break-word;
+	@apply select-none;
+	/*@apply odd:bg-base-300;*/
+}
+*[data-tsck-drag-region] {
+	app-region: drag;
+}
