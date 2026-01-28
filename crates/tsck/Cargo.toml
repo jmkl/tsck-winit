@@ -11,5 +11,7 @@ kee = { path = "../../../kee/" }
 parking_lot.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+ts-rs = "11.1"
+tsck-utils = { path = "../tsck-utils" }
 winit.workspace = true
 wry.workspace = true

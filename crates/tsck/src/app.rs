@@ -1,4 +1,5 @@
 use flume::{Receiver, Sender};
+use kee::list_windows;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
@@ -12,9 +13,9 @@ use wry::dpi::{LogicalSize, Position, Size};
 use wry::http::Request;
 use wry::{WebView, WebViewBuilder};
 
-use crate::config::{ConfigParser, PluginConf, WindowSrc};
-use crate::event::{ChannelEvent, UserEvent};
-use crate::ipc::IpcRequest;
+use crate::config::{ConfigParser, PluginConf, WindowPosition, WindowSize, WindowSrc};
+use crate::event::{ChannelEvent, EventPayload, UserEvent, WindowInfoExt};
+use crate::ipc::{IpcHelper, IpcRequest, IpcResponse};
 use crate::utils::animation::map_value;
 use crate::utils::winview_util::webview_bounds;
 use crate::{WindowState, dp, log_debug, log_error};
@@ -27,11 +28,20 @@ pub struct TsckApp {
     plugin_config: Arc<HashMap<String, PluginConf>>,
 }
 
+macro_rules! get_window_by_label {
+    ($self:expr,$label:expr,|$ws:ident|$space:block) => {
+        if let Some((_, ws)) = $self.windows.iter().find(|(_, ws)| ws.title == $label) {
+            let $ws = ws;
+            $space
+        }
+    };
+}
+
 macro_rules! get_window {
-    ($self:expr, $wid:ident,|$window:ident|$space:block) => {
+    ($self:expr, $wid:ident,|$ws:ident|$space:block) => {
         if let Some(window_id) = $wid {
             if let Some(ws) = $self.windows.get(&window_id) {
-                let $window = ws;
+                let $ws = ws;
                 $space
             }
         }
@@ -51,14 +61,14 @@ impl TsckApp {
             plugin_config: Arc::new(config.plugins),
         }
     }
+    pub fn reload_config(&mut self) {
+        let config = ConfigParser::parse(include_str!("../tsck.json"));
+        self.plugin_config = Arc::new(config.plugins);
+    }
     fn init(sender: &Sender<ChannelEvent>, config: &ConfigParser) {
-        for (n, p) in config.plugins.iter() {
-            if p.with_window {
-                if let Some(window) = p.window.as_ref() {
-                    if window.auto_launch {
-                        _ = sender.send((UserEvent::LaunchPlugin(n.clone()), None));
-                    }
-                }
+        for (name, plugin) in &config.plugins {
+            if plugin.with_window && plugin.window.as_ref().is_some_and(|w| w.auto_launch) {
+                let _ = sender.send((UserEvent::LaunchPlugin(name.clone()), None, None));
             }
         }
     }
@@ -66,8 +76,60 @@ impl TsckApp {
     fn process_cmd(&mut self, event_loop: &dyn ActiveEventLoop) {
         let receiver = self.receiver.clone();
         let config = self.plugin_config.clone();
-        while let Ok((cmd, window_id)) = receiver.try_recv() {
+        while let Ok((cmd, request, window_id)) = receiver.try_recv() {
             match cmd {
+                UserEvent::ReloadConfig => {
+                    self.reload_config();
+                }
+                UserEvent::ActivateWorkSpace(_) => {
+                    get_window_by_label!(self, "main", |ws| {
+                        if let Ok(payload) =
+                            IpcHelper::compile(EventPayload::FrontEnd.to_string(), cmd)
+                        {
+                            log_debug!(&payload);
+                            _ = ws.webview.evaluate_script(&payload);
+                        }
+                    });
+                }
+                UserEvent::IsOnTop => {
+                    get_window!(self, window_id, |ws| {
+                        request.map(|req| -> anyhow::Result<()> {
+                            let is_on_top = {
+                                let guard = ws.on_top.lock();
+                                *guard
+                            };
+                            let response = IpcResponse::success(req.id, is_on_top);
+                            ws.webview
+                                .evaluate_script(&req.to_response_success(response))?;
+                            Ok(())
+                        });
+                        // ws.window.set_minimized(true);
+                    });
+                }
+                UserEvent::GetActiveWindows => {
+                    get_window!(self, window_id, |ws| {
+                        request.map(|req| -> anyhow::Result<()> {
+                            let apps: Vec<WindowInfoExt> = list_windows()
+                                .iter()
+                                .map(|w| WindowInfoExt {
+                                    title: w.title(),
+                                    exe: w.name(),
+                                    class: w.class().to_string(),
+                                    size: WindowSize::new(w.size().width, w.size().height),
+                                    position: WindowPosition::new(
+                                        w.position().x as f32,
+                                        w.position().y as f32,
+                                    ),
+                                })
+                                .collect();
+                            let response = IpcResponse::success(req.id, apps);
+                            ws.webview
+                                .evaluate_script(&req.to_response_success(response))?;
+                            Ok(())
+                        });
+                        // ws.window.set_minimized(true);
+                    });
+                }
                 UserEvent::Minimize => {
                     get_window!(self, window_id, |ws| {
                         ws.window.set_minimized(true);
@@ -83,7 +145,6 @@ impl TsckApp {
                     });
                 }
                 UserEvent::DragWindow => {
-                    println!("UserEvent::DragWindow");
                     if let Some(window_id) = window_id {
                         if let Some(ws) = self.windows.get(&window_id) {
                             _ = ws.window.drag_window();
@@ -110,6 +171,7 @@ impl TsckApp {
                         .iter()
                         .find(|(_, ws)| &ws.title == &plugin_name)
                     {
+                        log_debug!("WINDOW EXIST", "SET FOUCS");
                         ws.window.focus_window();
                         _ = ws.webview.focus();
                         return;
@@ -142,8 +204,18 @@ impl TsckApp {
                 UserEvent::UpdateToolbarPanel(_toolbar_panel) => {
                     println!("UserEvent::UpdateToolbarPanel");
                 }
-                UserEvent::SetWindowOnTop(_) => {
-                    println!("UserEvent::SetWindowOnTop");
+                UserEvent::SetWindowOnTop(on_top) => {
+                    get_window!(self, window_id, |ws| {
+                        let window_level = match on_top {
+                            true => winit::window::WindowLevel::AlwaysOnTop,
+                            false => winit::window::WindowLevel::Normal,
+                        };
+                        {
+                            let mut guard = ws.on_top.lock();
+                            *guard = on_top;
+                        }
+                        ws.window.set_window_level(window_level);
+                    });
                 }
                 UserEvent::SetWindowDecorated(_) => {
                     println!("UserEvent::SetWindowDecorated");
@@ -205,18 +277,18 @@ impl TsckApp {
 
                                 std::thread::sleep(FRAME_TIME);
                             }
-                            ws.window.set_outer_position(Position::Physical(
-                                winit::dpi::PhysicalPosition {
-                                    x: to_pos.0 as i32,
-                                    y: to_pos.1 as i32,
-                                },
-                            ));
-                            _ = ws.window.request_surface_size(Size::Physical(
-                                winit::dpi::PhysicalSize {
-                                    width: to_size.0 as u32,
-                                    height: to_size.1 as u32,
-                                },
-                            ));
+                            // ws.window.set_outer_position(Position::Physical(
+                            //     winit::dpi::PhysicalPosition {
+                            //         x: to_pos.0 as i32,
+                            //         y: to_pos.1 as i32,
+                            //     },
+                            // ));
+                            // _ = ws.window.request_surface_size(Size::Physical(
+                            //     winit::dpi::PhysicalSize {
+                            //         width: to_size.0 as u32,
+                            //         height: to_size.1 as u32,
+                            //     },
+                            // ));
                         }
                     };
                 }
@@ -230,10 +302,11 @@ impl TsckApp {
         let sender = self.sender.clone();
         move |req| {
             let body = req.body();
-            if let Ok(response) = serde_json::from_str::<IpcRequest>(body) {
-                if let Some(data) = response.data {
+            if let Ok(request) = serde_json::from_str::<IpcRequest>(body) {
+                let request = Arc::from(request);
+                if let Some(data) = request.data.clone() {
                     if let Ok(ev) = serde_json::from_value::<UserEvent>(data) {
-                        _ = sender.send((ev, Some(window_id)));
+                        _ = sender.send((ev, Some(request), Some(window_id)));
                     }
                 }
             }
@@ -285,7 +358,7 @@ impl TsckApp {
                 let view = builder
                     .with_url(url)
                     .with_new_window_req_handler(move |url, _| {
-                        _ = sender.send((UserEvent::NavigateWebview(url), Some(window_id)));
+                        _ = sender.send((UserEvent::NavigateWebview(url), None, Some(window_id)));
                         wry::NewWindowResponse::Deny
                     })
                     .with_initialization_script(custom_script)

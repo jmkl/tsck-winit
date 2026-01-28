@@ -14,13 +14,16 @@
 	import Down from '$lib/components/Icon/Down.svelte';
 	import Chatgpt from '$lib/components/Icon/Chatgpt.svelte';
 	import { fade, fly, slide } from 'svelte/transition';
+	import Expand from '$lib/components/Icon/Expand.svelte';
 	let iconStatus = $state(false);
 	let timeout: NodeJS.Timeout | undefined = $state();
-	type LLMType = {
+	type BrowserType = {
 		title: string;
 		url: string;
 	};
-	const LLMPage: LLMType[] = [
+	let isOnTop = $state(false);
+	const BrowserPage: BrowserType[] = [
+		{ title: 'GOOGLE', url: 'https://google.com/search?udm=2&q=mia+malkova' },
 		{ title: 'GPT', url: 'https://chatgpt.com' },
 		{ title: 'CLAUDE', url: 'https://claude.ai' },
 		{ title: 'QWEN', url: 'https://chat.qwen.ai/' },
@@ -70,9 +73,14 @@
 	}
 	let activeLLM = $state(0);
 	let hoverState = $state(false);
+	let menuHoverState = $state(false);
+	function onTopChange() {
+		isOnTop = !isOnTop;
+		invokePayload({ type: 'SetWindowOnTop', value: isOnTop });
+	}
 </script>
 
-{#snippet renderButton(llm: LLMType, index: number)}
+{#snippet renderButton(llm: BrowserType, index: number)}
 	<button
 		onclick={() => {
 			activeLLM = index;
@@ -85,47 +93,53 @@
 
 <div class="content flex size-full flex-col overflow-hidden">
 	<div class="flex w-full flex-row items-center justify-between bg-base-300 py-1">
-		<div class="absolute bottom-0 h-px w-full bg-error" style="width: {zoom_value * 100}%;"></div>
-
-		<IconButton
-			class="btn-ghost!"
-			onclick={() => {
-				zoom();
-				invokePayload({ type: 'ZoomWebview', value: zoom_value });
-				if (zoom_value >= 1.0) zoom_value = 0.5;
-			}}
-			icon={ZoomIn}
-		/>
-		<button
-			onclick={() => {
-				invokePayload({ type: 'Test' });
-			}}
-			class="btn btn-xs">Test</button
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div
+			onmouseenter={() => (menuHoverState = true)}
+			onmouseleave={() => (menuHoverState = false)}
+			class="flex flex-row items-center gap-1 px-2"
 		>
-		{#if currentPage == 'google'}
-			<IconButton onclick={backward} class="btn-ghost!" icon={ChevronLeft} />
-			<IconButton onclick={forward} class="btn-ghost!" icon={ChevronRight} />
-		{/if}
+			{#if !menuHoverState}
+				<IconButton class="btn-ghost!" icon={Expand} />
+			{:else}
+				<IconButton
+					class="btn-ghost!"
+					onclick={() => {
+						zoom();
+						invokePayload({ type: 'ZoomWebview', value: zoom_value });
+						if (zoom_value >= 1.0) zoom_value = 0.5;
+					}}
+					icon={ZoomIn}
+				/>
+				<span class="badge badge-xs">{zoom_value.toFixed(1)}</span>
+				<input
+					type="checkbox"
+					onchange={onTopChange}
+					checked={isOnTop}
+					class="toggle toggle-error toggle-xs"
+				/>
+			{/if}
+		</div>
+		<IconButton onclick={backward} class="btn-ghost!" icon={ChevronLeft} />
+		<IconButton onclick={forward} class="btn-ghost!" icon={ChevronRight} />
 		<div
 			data-tsck-drag-region
 			class="flex h-full flex-1 cursor-grab items-center justify-center"
 		></div>
-		{#if currentPage == 'llm'}
-			<!-- svelte-ignore a11y_no_static_element_interactions -->
-			<div
-				onmouseenter={() => (hoverState = true)}
-				onmouseleave={() => (hoverState = false)}
-				class="flex flex-row items-center justify-center"
-			>
-				{#each LLMPage as llm, index}
-					{#if hoverState}
-						{@render renderButton(llm, index)}
-					{:else if activeLLM == index}
-						{@render renderButton(llm, index)}
-					{/if}
-				{/each}
-			</div>
-		{/if}
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div
+			onmouseenter={() => (hoverState = true)}
+			onmouseleave={() => (hoverState = false)}
+			class="flex flex-row items-center justify-center"
+		>
+			{#each BrowserPage as llm, index}
+				{#if hoverState}
+					{@render renderButton(llm, index)}
+				{:else if activeLLM == index}
+					{@render renderButton(llm, index)}
+				{/if}
+			{/each}
+		</div>
 		<TitleBar maximizeBtn={true} />
 	</div>
 	<div class="content flex-1 bg-base-100"></div>

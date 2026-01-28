@@ -1,7 +1,11 @@
 #![allow(unused)]
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
-#[derive(Deserialize, Debug, Serialize, Clone, PartialEq)]
+use crate::event::TS_PATH;
+
+#[derive(Deserialize, TS, Debug, Serialize, Clone, PartialEq)]
+#[ts(export_to=TS_PATH)]
 pub enum AnimationEasing {
     EaseInSine,
     EaseOutSine,
@@ -157,14 +161,18 @@ pub fn map_value(start: (i32, i32), end: (i32, i32), eased_t: f64) -> (f64, f64)
     let new_y = start.1 as f64 + (end.1 - start.1) as f64 * eased_t;
     (new_x, new_y)
 }
-#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export_to=TS_PATH)]
 pub struct AnimationPayload {
     pub label: String,
+    #[ts(type = "number")]
     pub duration: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub to_size: Option<(i32, i32)>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub to_pos: Option<(i32, i32)>,
     pub easing: AnimationEasing,
 }

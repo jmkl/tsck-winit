@@ -1,11 +1,33 @@
-use std::{sync::Arc, time::Instant};
+use std::{collections::HashMap, str::FromStr, sync::Arc, time::Instant};
 
 use flume::{Receiver, Sender, unbounded};
-use kee::{Event, Expr, Kee, get_current_active_window, list_windows, parse_command};
+use kee::{Event, Kee, TKeePair, get_current_active_window, list_windows};
 use parking_lot::Mutex;
+use serde::{Deserialize, Serialize};
+use tsck_utils::{ConfigStore, Expr, generate_func_enums, parse_func};
 use winit::event_loop::EventLoopProxy;
 
-use crate::event::{ChannelEvent, UserEvent};
+generate_func_enums!(
+    KeeEntry => (
+        App => (
+            Tsockee,
+            LaunchPlugin,
+            Photoshop,
+            CycleApps,
+            ReloadConfig,
+        )
+        Workspace => (
+            Toggle,
+            Activate,
+        )
+    )
+);
+
+use crate::{
+    dp,
+    event::{ChannelEvent, UserEvent},
+    log_debug, log_error,
+};
 
 enum SearchMode {
     Title,
@@ -37,7 +59,9 @@ impl CycleApps {
 // zed,zen
 pub fn spawn_hotkee(tx: Sender<ChannelEvent>, proxy: EventLoopProxy) {
     std::thread::spawn(move || {
-        _spawn_hotkee(tx, &proxy);
+        if let Err(err) = _spawn_hotkee(tx, &proxy) {
+            log_error!("ERROR HOTKEY", err);
+        }
     });
 }
 
@@ -115,87 +139,122 @@ impl WindowOps {
     }
 }
 
-fn _spawn_hotkee(tx: Sender<ChannelEvent>, proxy: &EventLoopProxy) {
+#[derive(Serialize, Debug, Clone, Deserialize, Default)]
+#[serde(default)]
+pub struct HotkeeConfig {
+    monitors: Vec<(i32, i32)>,
+    apps: Vec<String>,
+    kees: HashMap<String, String>,
+    version: String,
+}
+
+fn _spawn_hotkee(tx: Sender<ChannelEvent>, proxy: &EventLoopProxy) -> anyhow::Result<()> {
+    let config = ConfigStore::<HotkeeConfig>::new("tsck-winit", Some("conf.json"))?;
+    let kees: Vec<TKeePair> = config.get(|c| {
+        c.kees
+            .clone()
+            .into_iter()
+            .map(|(k, v)| TKeePair::new(k, v))
+            .collect()
+    });
+    let apps = config.get(|c| c.apps.clone());
     let mut kee = Kee::new();
     let proxy = proxy.clone();
-    let apps = Arc::new(Mutex::new(CycleApps::new(vec![
-        "WHATSAPP.ROOT".to_string(),
-        "PHOTOSHOP".to_string(),
-        "T:GOOGLE".to_string(),
-        "T:LLM".to_string(),
-    ])));
-    // let apps = Arc::new(Mutex::new(CycleApps::new(kee.get_apps())));
+    let apps = Arc::new(Mutex::new(CycleApps::new(apps)));
     let (winops_sender, winops_receiver) = unbounded::<WindowOpsEvent>();
     WindowOps::new(winops_receiver).spawn();
     let clone_apps = apps.clone();
     let app_sender = tx.clone();
+
     kee.on_message(move |event| match event {
         Event::Keys(_, f) => {
-            if let Some(cmd) = parse_command(f) {
+            if let Some(cmd) = parse_func(f) {
                 proxy.wake_up();
-                match cmd.namespace {
-                    "app" => match cmd.action {
-                        "CYCLE" => {
-                            let mut clone_apps = clone_apps.lock();
-
-                            let app = {
-                                let index = clone_apps.next();
-                                let app = clone_apps.get_app(index);
-                                app
-                            };
-                            if let Some(app) = app {
-                                if let Some((lhs, rhs)) = app.split_once(":") {
-                                    if lhs == "T" {
+                if let Ok(entry) = KeeEntry::from_str(cmd.entry) {
+                    match entry {
+                        KeeEntry::App => {
+                            if let Ok(func) = AppFunc::from_str(cmd.func) {
+                                match func {
+                                    AppFunc::ReloadConfig => {
+                                        _ = app_sender.send((UserEvent::ReloadConfig, None, None));
+                                    }
+                                    AppFunc::Tsockee => {
+                                        //dothis
+                                    }
+                                    AppFunc::LaunchPlugin => match cmd.args.as_slice() {
+                                        [Expr::Ident(win_title)] => {
+                                            _ = app_sender.send((
+                                                UserEvent::LaunchPlugin(win_title.to_lowercase()),
+                                                None,
+                                                None,
+                                            ));
+                                        }
+                                        _ => {}
+                                    },
+                                    AppFunc::Photoshop => {
+                                        //dothis
                                         _ = winops_sender.send(WindowOpsEvent::BringToFront(
-                                            SearchMode::Title,
-                                            rhs.to_string(),
+                                            SearchMode::Name,
+                                            cmd.func.to_string(),
                                         ));
                                     }
-                                } else {
-                                    _ = winops_sender.send(WindowOpsEvent::BringToFront(
-                                        SearchMode::Name,
-                                        app.to_string(),
-                                    ));
+                                    AppFunc::CycleApps => {
+                                        //dothis
+                                        let mut clone_apps = clone_apps.lock();
+
+                                        let app = {
+                                            let index = clone_apps.next();
+                                            let app = clone_apps.get_app(index);
+                                            app
+                                        };
+                                        if let Some(app) = app {
+                                            if let Some((lhs, rhs)) = app.split_once(":") {
+                                                if lhs == "T" {
+                                                    _ = winops_sender.send(
+                                                        WindowOpsEvent::BringToFront(
+                                                            SearchMode::Title,
+                                                            rhs.to_string(),
+                                                        ),
+                                                    );
+                                                }
+                                            } else {
+                                                _ = winops_sender.send(
+                                                    WindowOpsEvent::BringToFront(
+                                                        SearchMode::Name,
+                                                        app.to_string(),
+                                                    ),
+                                                );
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
-                        "PHOTOSHOP" => {
-                            _ = winops_sender.send(WindowOpsEvent::BringToFront(
-                                SearchMode::Name,
-                                cmd.action.to_string(),
-                            ));
-                        }
-                        "TSOCKEE" => match cmd.args.as_slice() {
-                            [Expr::Ident(win_title)] => {
-                                _ = winops_sender.send(WindowOpsEvent::BringToFront(
-                                    SearchMode::Title,
-                                    win_title.to_string(),
-                                ));
+                        KeeEntry::Workspace => {
+                            if let Ok(func) = WorkspaceFunc::from_str(cmd.func) {
+                                match func {
+                                    WorkspaceFunc::Toggle => {
+                                        _ = winops_sender.send(WindowOpsEvent::ToggleWorkspace);
+                                    }
+                                    WorkspaceFunc::Activate => match cmd.args.as_slice() {
+                                        [Expr::Number(page)] => {
+                                            _ = app_sender.send((
+                                                UserEvent::ActivateWorkSpace(*page),
+                                                None,
+                                                None,
+                                            ));
+                                        }
+                                        _ => {}
+                                    },
+                                }
                             }
-                            _ => {}
-                        },
-                        "LAUNCHPLUGIN" => match cmd.args.as_slice() {
-                            [Expr::Ident(win_title)] => {
-                                _ = app_sender.send((
-                                    UserEvent::LaunchPlugin(win_title.to_lowercase()),
-                                    None,
-                                ));
-                            }
-                            _ => {}
-                        },
-                        _ => {}
-                    },
-                    "workspace" => match cmd.action {
-                        "TOGGLE" => {
-                            _ = winops_sender.send(WindowOpsEvent::ToggleWorkspace);
                         }
-                        _ => {}
-                    },
-                    _ => {}
+                    }
                 }
             }
         }
         _ => {}
     })
-    .run();
+    .run(kees);
+    Ok(())
 }
