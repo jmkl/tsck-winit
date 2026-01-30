@@ -1,4 +1,4 @@
-use crate::config::{ToolbarPanel, ToolbarPosition};
+use crate::store::config::{ToolbarPanel, ToolbarPosition};
 use winit::dpi::{LogicalPosition, LogicalSize};
 use wry::Rect;
 
@@ -76,5 +76,14 @@ fn calculate_positions(
             LogicalPosition::new(w - panel_width - padding, h - panel_height - padding).into(),
             webview_rect(0, h - margin),
         ),
+    }
+}
+
+#[cfg(test)]
+mod test_window {
+    #[test]
+    fn test_calc() {
+        let h: i32 = (-8) / 1440;
+        println!("{}", h.abs());
     }
 }

@@ -12,6 +12,28 @@
 				"window_src": { "Local": "/" }
 			}
 		},
+		"workspace": {
+			"with_window": true,
+			"custom_script": null,
+			"device_event_filter": true,
+			"window": {
+				"decorations": false,
+				"always_on_top": true,
+				"auto_launch": true,
+				"skip_taskbar": true,
+				"receive_cursor_event": false,
+				"shadow": false,
+				"window_src": { "Local": "/Workspace" },
+				"window_size": {
+					"width": 400,
+					"height": 40
+				},
+				"window_position": {
+					"x": 970,
+					"y": 0
+				}
+			}
+		},
 		"tsck-browser": {
 			"with_window": true,
 			"custom_script": "scripts/google.js",

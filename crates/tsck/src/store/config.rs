@@ -44,23 +44,23 @@ impl WindowSize {
 #[derive(Clone, Debug, TS, Serialize, Deserialize)]
 #[ts(export_to=TS_PATH)]
 pub struct WindowPosition {
-    pub x: f32,
-    pub y: f32,
+    pub x: i32,
+    pub y: i32,
 }
 impl WindowPosition {
-    pub fn new(x: f32, y: f32) -> Self {
+    pub fn new(x: i32, y: i32) -> Self {
         Self { x, y }
     }
     pub fn to_logical_position(&self) -> LogicalPosition<f32> {
         LogicalPosition {
-            x: self.x,
-            y: self.y,
+            x: self.x as f32,
+            y: self.y as f32,
         }
     }
     pub fn to_position(&self) -> Position {
         Position::Physical(PhysicalPosition {
-            x: self.x as i32,
-            y: self.y as i32,
+            x: self.x,
+            y: self.y,
         })
     }
 }
@@ -103,7 +103,7 @@ pub struct WindowConf {
     pub decorations: bool,
     pub shadow: bool,
     pub always_on_top: bool,
-    pub ignore_cursor_event: bool,
+    pub receive_cursor_event: bool,
     pub transparent: bool,
     pub skip_taskbar: bool,
     pub auto_launch: bool,
@@ -120,7 +120,7 @@ impl Default for WindowConf {
             decorations: true,
             shadow: true,
             always_on_top: false,
-            ignore_cursor_event: false,
+            receive_cursor_event: true,
             transparent: true,
             skip_taskbar: false,
             auto_launch: true,
@@ -130,7 +130,7 @@ impl Default for WindowConf {
             },
             webview_zoom_factor: 1.0,
             toolbar_panel: toolbar,
-            window_position: WindowPosition { x: 0.0, y: 0.0 },
+            window_position: WindowPosition { x: 0, y: 0 },
         }
     }
 }
@@ -175,11 +175,11 @@ impl ConfigParser {
 
 #[cfg(test)]
 mod test {
-    use crate::{config::ConfigParser, dp, log_error};
+    use crate::{dp, log_error, store::config::ConfigParser};
 
     #[test]
     fn test() {
-        let config = ConfigParser::parse(include_str!("../tsck.json"));
+        let config = ConfigParser::parse(include_str!("../../tsck.json"));
         log_error!(dp!(config));
     }
 }

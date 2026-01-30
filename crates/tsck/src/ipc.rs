@@ -106,3 +106,11 @@ impl IpcHelper {
         ))
     }
 }
+
+#[macro_export]
+macro_rules! response_success {
+    ($wv:expr, $req:expr, $value:expr) => {
+        let response = IpcResponse::success($req.id, $value);
+        $wv.evaluate_script(&$req.to_response_success(response))?;
+    };
+}

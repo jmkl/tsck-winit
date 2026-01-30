@@ -1,11 +1,9 @@
-use std::{collections::HashMap, str::FromStr, sync::Arc, time::Instant};
+use std::{str::FromStr, sync::Arc, time::Instant};
 
-use flume::{Receiver, Sender, unbounded};
-use kee::{Event, Kee, TKeePair, get_current_active_window, list_windows};
+use crate::{ChannelBus, app_config::AppConfigHandler, event::UserEvent, log_error};
+use kee::{Event, Kee, SafeHWND, TKeePair, WindowInfo, list_windows};
 use parking_lot::Mutex;
-use serde::{Deserialize, Serialize};
-use tsck_utils::{ConfigStore, Expr, generate_func_enums, parse_func};
-use winit::event_loop::EventLoopProxy;
+use tsck_utils::{Expr, generate_func_enums, parse_func};
 
 generate_func_enums!(
     KeeEntry => (
@@ -14,20 +12,18 @@ generate_func_enums!(
             LaunchPlugin,
             Photoshop,
             CycleApps,
+            Broadcast,
             ReloadConfig,
+            CyclePages
         )
         Workspace => (
-            Toggle,
+            CycleWorkSpace,
             Activate,
+            MoveWindow,
+            MoveWindowToWorkSpace
         )
     )
 );
-
-use crate::{
-    dp,
-    event::{ChannelEvent, UserEvent},
-    log_debug, log_error,
-};
 
 enum SearchMode {
     Title,
@@ -35,77 +31,67 @@ enum SearchMode {
 }
 
 #[allow(unused)]
-struct CycleApps {
+struct WindowOpsHandler {
+    config_handler: AppConfigHandler,
     apps: Vec<String>,
     active_index: usize,
     active_workspace: usize,
+    active_window: Option<WindowInfo>,
 }
-impl CycleApps {
-    pub fn new(apps: Vec<String>) -> Self {
+impl WindowOpsHandler {
+    pub fn new() -> Self {
+        let config_handler = AppConfigHandler::new();
+        let apps = config_handler.apps();
         Self {
+            config_handler,
             apps,
             active_index: 0,
             active_workspace: 0,
+            active_window: None,
         }
     }
-    pub fn next(&mut self) -> usize {
+    pub fn update_apps(&mut self) {
+        self.config_handler = AppConfigHandler::new();
+        self.apps = self.config_handler.apps();
+    }
+    pub fn next_app(&mut self) {
         self.active_index = (self.active_index + 1) % self.apps.len();
-        self.active_index
+        if let Some(app) = self.get_app(self.active_index) {
+            if let Some((lhs, rhs)) = app.split_once(":") {
+                if lhs == "T" {
+                    WindowOps::to_front(SearchMode::Title, rhs);
+                }
+            } else {
+                WindowOps::to_front(SearchMode::Name, app);
+            }
+        }
+    }
+    pub fn next_workspace(&mut self) -> usize {
+        self.active_workspace = (self.active_workspace + 1) % 3;
+        self.active_workspace
+    }
+    pub fn set_active_window(&mut self, window_info: WindowInfo) {
+        self.active_window = Some(window_info);
+    }
+    pub fn get_active_window(&self) -> &Option<WindowInfo> {
+        &self.active_window
     }
     pub fn get_app(&self, index: usize) -> Option<&String> {
         self.apps.get(index)
     }
 }
 // zed,zen
-pub fn spawn_hotkee(tx: Sender<ChannelEvent>, proxy: EventLoopProxy) {
+pub fn init_hotkee(bus: Arc<ChannelBus>) {
     std::thread::spawn(move || {
-        if let Err(err) = _spawn_hotkee(tx, &proxy) {
+        if let Err(err) = _spawn_hotkee(bus) {
             log_error!("ERROR HOTKEY", err);
         }
     });
 }
 
-enum WindowOpsEvent {
-    BringToFront(SearchMode, String),
-    ToggleWorkspace,
-}
-
-struct WindowOps {
-    active_workspace: Arc<Mutex<i8>>,
-    receiver: Receiver<WindowOpsEvent>,
-}
+struct WindowOps;
 
 impl WindowOps {
-    fn new(receiver: Receiver<WindowOpsEvent>) -> Self {
-        Self {
-            active_workspace: Arc::new(Mutex::new(0)),
-            receiver,
-        }
-    }
-    fn spawn(&self) {
-        let receiver = self.receiver.clone();
-        let active_workspace = self.active_workspace.clone();
-        std::thread::spawn(move || {
-            while let Ok(event) = receiver.recv() {
-                match event {
-                    WindowOpsEvent::BringToFront(search_mode, payload) => {
-                        WindowOps::to_front(search_mode, &payload);
-                    }
-                    WindowOpsEvent::ToggleWorkspace => {
-                        let workspace = {
-                            let mut guard = active_workspace.lock();
-                            *guard = if *guard == 1 { 0 } else { 1 };
-                            *guard
-                        };
-                        if let Some(window) = get_current_active_window() {
-                            println!("{:?}", window);
-                        }
-                        WindowOps::activate_workspace(workspace);
-                    }
-                }
-            }
-        });
-    }
     fn activate_workspace(which: i8) {
         for w in list_windows().iter() {
             if which == 0 {
@@ -137,124 +123,160 @@ impl WindowOps {
         }
         println!("Execute in: {}ms", start.elapsed().as_millis());
     }
+    fn move_window(to: &str, hwnd: &SafeHWND) {
+        let inc = AppConfigHandler::new().move_increment();
+        if let Some(w) = list_windows().iter().find(|w| &w.hwnd == hwnd) {
+            match to {
+                "LEFT" => {
+                    _ = w.move_to(w.position().x - inc, w.position().y);
+                }
+                "RIGHT" => {
+                    _ = w.move_to(w.position().x + inc, w.position().y);
+                }
+                _ => {}
+            }
+        }
+    }
 }
 
-#[derive(Serialize, Debug, Clone, Deserialize, Default)]
-#[serde(default)]
-pub struct HotkeeConfig {
-    monitors: Vec<(i32, i32)>,
-    apps: Vec<String>,
-    kees: HashMap<String, String>,
-    version: String,
-}
+fn _spawn_hotkee(bus: Arc<ChannelBus>) -> anyhow::Result<()> {
+    let config = AppConfigHandler::new();
+    let kees: Vec<TKeePair> = config.get_tkee_pair();
+    let apps = Arc::new(Mutex::new(WindowOpsHandler::new()));
+    let apps = apps.clone();
+    let channel_bus = bus.clone();
 
-fn _spawn_hotkee(tx: Sender<ChannelEvent>, proxy: &EventLoopProxy) -> anyhow::Result<()> {
-    let config = ConfigStore::<HotkeeConfig>::new("tsck-winit", Some("conf.json"))?;
-    let kees: Vec<TKeePair> = config.get(|c| {
-        c.kees
-            .clone()
-            .into_iter()
-            .map(|(k, v)| TKeePair::new(k, v))
-            .collect()
-    });
-    let apps = config.get(|c| c.apps.clone());
-    let mut kee = Kee::new();
-    let proxy = proxy.clone();
-    let apps = Arc::new(Mutex::new(CycleApps::new(apps)));
-    let (winops_sender, winops_receiver) = unbounded::<WindowOpsEvent>();
-    WindowOps::new(winops_receiver).spawn();
-    let clone_apps = apps.clone();
-    let app_sender = tx.clone();
+    let kee = Kee::new();
+    let kee = Arc::new(Mutex::new(kee));
+    let key_for_message = kee.clone();
 
-    kee.on_message(move |event| match event {
-        Event::Keys(_, f) => {
-            if let Some(cmd) = parse_func(f) {
-                proxy.wake_up();
-                if let Ok(entry) = KeeEntry::from_str(cmd.entry) {
-                    match entry {
-                        KeeEntry::App => {
-                            if let Ok(func) = AppFunc::from_str(cmd.func) {
-                                match func {
-                                    AppFunc::ReloadConfig => {
-                                        _ = app_sender.send((UserEvent::ReloadConfig, None, None));
-                                    }
-                                    AppFunc::Tsockee => {
-                                        //dothis
-                                    }
-                                    AppFunc::LaunchPlugin => match cmd.args.as_slice() {
-                                        [Expr::Ident(win_title)] => {
-                                            _ = app_sender.send((
-                                                UserEvent::LaunchPlugin(win_title.to_lowercase()),
-                                                None,
-                                                None,
-                                            ));
+    kee.lock()
+        .on_message(move |event| match event {
+            Event::Keys(_, f) => {
+                if let Some(cmd) = parse_func(f) {
+                    channel_bus.wake_up();
+                    if let Ok(entry) = KeeEntry::from_str(cmd.entry) {
+                        match entry {
+                            KeeEntry::App => {
+                                if let Ok(func) = AppFunc::from_str(cmd.func) {
+                                    match func {
+                                        AppFunc::ReloadConfig => {
+                                            {
+                                                apps.lock().update_apps();
+                                            }
+                                            _ = key_for_message.clone().lock().update_hotkeys(
+                                                AppConfigHandler::new().get_tkee_pair(),
+                                            );
                                         }
-                                        _ => {}
-                                    },
-                                    AppFunc::Photoshop => {
-                                        //dothis
-                                        _ = winops_sender.send(WindowOpsEvent::BringToFront(
-                                            SearchMode::Name,
-                                            cmd.func.to_string(),
-                                        ));
-                                    }
-                                    AppFunc::CycleApps => {
-                                        //dothis
-                                        let mut clone_apps = clone_apps.lock();
-
-                                        let app = {
-                                            let index = clone_apps.next();
-                                            let app = clone_apps.get_app(index);
-                                            app
-                                        };
-                                        if let Some(app) = app {
-                                            if let Some((lhs, rhs)) = app.split_once(":") {
-                                                if lhs == "T" {
-                                                    _ = winops_sender.send(
-                                                        WindowOpsEvent::BringToFront(
-                                                            SearchMode::Title,
-                                                            rhs.to_string(),
-                                                        ),
-                                                    );
-                                                }
-                                            } else {
-                                                _ = winops_sender.send(
-                                                    WindowOpsEvent::BringToFront(
-                                                        SearchMode::Name,
-                                                        app.to_string(),
+                                        AppFunc::Tsockee => {
+                                            //dothis
+                                        }
+                                        AppFunc::LaunchPlugin => match cmd.args.as_slice() {
+                                            [Expr::Ident(win_title)] => {
+                                                _ = channel_bus.send((
+                                                    UserEvent::LaunchPlugin(
+                                                        win_title.to_lowercase(),
                                                     ),
-                                                );
+                                                    None,
+                                                    None,
+                                                ));
+                                            }
+                                            _ => {}
+                                        },
+                                        AppFunc::Broadcast => match cmd.args.as_slice() {
+                                            [Expr::Ident(message)] => {
+                                                channel_bus.ws_send_to_all(message.to_string());
+                                            }
+                                            [Expr::Number(_)] => {}
+                                            _ => {}
+                                        },
+                                        AppFunc::Photoshop => {
+                                            WindowOps::to_front(SearchMode::Name, cmd.func);
+                                        }
+                                        AppFunc::CycleApps => {
+                                            apps.lock().next_app();
+                                        }
+                                        AppFunc::CyclePages => match cmd.args.as_slice() {
+                                            [Expr::Ident(direction)] => {
+                                                let direction = match *direction {
+                                                    "PREV" => -1,
+                                                    "NEXT" => 1,
+                                                    _ => 0,
+                                                };
+                                                _ = channel_bus.send((
+                                                    UserEvent::CyclePages(direction),
+                                                    None,
+                                                    None,
+                                                ));
+                                            }
+                                            _ => {}
+                                        },
+                                    }
+                                }
+                            }
+                            KeeEntry::Workspace => {
+                                if let Ok(func) = WorkspaceFunc::from_str(cmd.func) {
+                                    match func {
+                                        WorkspaceFunc::CycleWorkSpace => {
+                                            {
+                                                let mut clone_apps = apps.lock();
+                                                let index = clone_apps.next_workspace();
+                                                _ = channel_bus.send((
+                                                    UserEvent::ActivateWorkSpace(index as i64),
+                                                    None,
+                                                    None,
+                                                ));
+                                            };
+                                        }
+                                        WorkspaceFunc::Activate => match cmd.args.as_slice() {
+                                            [Expr::Number(page)] => {
+                                                _ = channel_bus.send((
+                                                    UserEvent::ActivateWorkSpace(*page),
+                                                    None,
+                                                    None,
+                                                ));
+                                            }
+                                            _ => {}
+                                        },
+                                        WorkspaceFunc::MoveWindow => match cmd.args.as_slice() {
+                                            [Expr::Ident(to)] => {
+                                                let clone_apps = apps.clone();
+                                                {
+                                                    if let Some(w) =
+                                                        clone_apps.lock().get_active_window()
+                                                    {
+                                                        WindowOps::move_window(*to, &w.hwnd);
+                                                    }
+                                                }
+                                            }
+                                            _ => {}
+                                        },
+                                        WorkspaceFunc::MoveWindowToWorkSpace => {
+                                            match cmd.args.as_slice() {
+                                                [Expr::Ident(to)] => {}
+                                                _ => {}
                                             }
                                         }
                                     }
                                 }
                             }
                         }
-                        KeeEntry::Workspace => {
-                            if let Ok(func) = WorkspaceFunc::from_str(cmd.func) {
-                                match func {
-                                    WorkspaceFunc::Toggle => {
-                                        _ = winops_sender.send(WindowOpsEvent::ToggleWorkspace);
-                                    }
-                                    WorkspaceFunc::Activate => match cmd.args.as_slice() {
-                                        [Expr::Number(page)] => {
-                                            _ = app_sender.send((
-                                                UserEvent::ActivateWorkSpace(*page),
-                                                None,
-                                                None,
-                                            ));
-                                        }
-                                        _ => {}
-                                    },
-                                }
-                            }
-                        }
                     }
                 }
             }
-        }
-        _ => {}
-    })
-    .run(kees);
+            Event::WindowChange(safe_window_info) => {
+                if let Some(w) = list_windows()
+                    .iter()
+                    .find(|w| w.hwnd == safe_window_info.hwnd)
+                {
+                    let clone_apps = apps.clone();
+                    {
+                        clone_apps.lock().set_active_window(w.clone());
+                    }
+                }
+            }
+            _ => {}
+        })
+        .run(kees);
     Ok(())
 }

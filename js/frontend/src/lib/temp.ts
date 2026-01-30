@@ -11,3 +11,19 @@ export const CHATS = [
 	'Latar warna diubah saja biar berbeda',
 	'Nara hubung dibesarkan. Masih ada ruang 0. Orang tidak sulit baca'
 ];
+export const DUMMY_TEMPLATELINE = [
+	{
+		id: 0,
+		text: 'HELLO WORLD',
+		scale: 1,
+		italic: false,
+		include: true
+	},
+	{
+		id: 1,
+		text: 'WE NEED MORE LOVE!',
+		scale: 1,
+		italic: false,
+		include: true
+	}
+];
