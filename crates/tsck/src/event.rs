@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use crate::{
-    config::{ToolbarPanel, WindowPosition, WindowSize},
     ipc::IpcRequest,
+    store::config::{ToolbarPanel, WindowPosition, WindowSize},
     utils::animation::AnimationPayload,
 };
 use serde::{Deserialize, Serialize};
@@ -50,6 +50,7 @@ pub struct WindowInfoExt {
     pub class: String,
     pub size: WindowSize,
     pub position: WindowPosition,
+    pub workspace: i32,
 }
 
 pub type ChannelEvent = (UserEvent, Option<Arc<IpcRequest>>, Option<WindowId>);
@@ -81,5 +82,7 @@ pub enum UserEvent {
     SetIgnoreCursorEvent(bool),
     GoogleDownloadImage(String),
     ActivateWorkSpace(i64),
+    CyclePages(i32),
     GetActiveWindows,
+    IncomingWebsocketMessage(u64, String),
 }

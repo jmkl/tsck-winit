@@ -1,4 +1,9 @@
-use flume::{Receiver, Sender};
+use crate::event::{EventPayload, UserEvent, WindowInfoExt};
+use crate::ipc::{IpcHelper, IpcRequest, IpcResponse};
+use crate::store::config::{ConfigParser, PluginConf, WindowPosition, WindowSize, WindowSrc};
+use crate::utils::animation::map_value;
+use crate::utils::winview_util::webview_bounds;
+use crate::{ChannelBus, WindowState, dp, log_debug, log_error, response_success};
 use kee::list_windows;
 use std::collections::HashMap;
 use std::path::Path;
@@ -7,23 +12,15 @@ use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::ActiveEventLoop;
-use winit::platform::windows::WindowExtWindows;
+use winit::platform::windows::{WindowAttributesWindows, WindowExtWindows};
 use winit::window::{Window, WindowAttributes, WindowId};
-use wry::dpi::{LogicalSize, Position, Size};
+use wry::dpi::{LogicalPosition, Position, Size};
 use wry::http::Request;
-use wry::{WebView, WebViewBuilder};
-
-use crate::config::{ConfigParser, PluginConf, WindowPosition, WindowSize, WindowSrc};
-use crate::event::{ChannelEvent, EventPayload, UserEvent, WindowInfoExt};
-use crate::ipc::{IpcHelper, IpcRequest, IpcResponse};
-use crate::utils::animation::map_value;
-use crate::utils::winview_util::webview_bounds;
-use crate::{WindowState, dp, log_debug, log_error};
+use wry::{Rect, WebView, WebViewBuilder};
 
 pub struct TsckApp {
     windows: HashMap<WindowId, WindowState>,
-    receiver: Receiver<ChannelEvent>,
-    sender: Sender<ChannelEvent>,
+    channel_bus: Arc<ChannelBus>,
     dev_url: String,
     plugin_config: Arc<HashMap<String, PluginConf>>,
 }
@@ -49,14 +46,12 @@ macro_rules! get_window {
 }
 
 impl TsckApp {
-    pub fn new(sender: Sender<ChannelEvent>, receiver: Receiver<ChannelEvent>) -> Self {
+    pub fn new(channel_bus: Arc<ChannelBus>) -> Self {
         let config = ConfigParser::parse(include_str!("../tsck.json"));
-        // _ = sender.send((UserEvent::CreateWindow("main".to_string()), None));
-        Self::init(&sender, &config);
+        Self::init(&channel_bus, &config);
         Self {
             windows: HashMap::new(),
-            receiver,
-            sender,
+            channel_bus,
             dev_url: config.dev_url,
             plugin_config: Arc::new(config.plugins),
         }
@@ -65,7 +60,7 @@ impl TsckApp {
         let config = ConfigParser::parse(include_str!("../tsck.json"));
         self.plugin_config = Arc::new(config.plugins);
     }
-    fn init(sender: &Sender<ChannelEvent>, config: &ConfigParser) {
+    fn init(sender: &Arc<ChannelBus>, config: &ConfigParser) {
         for (name, plugin) in &config.plugins {
             if plugin.with_window && plugin.window.as_ref().is_some_and(|w| w.auto_launch) {
                 let _ = sender.send((UserEvent::LaunchPlugin(name.clone()), None, None));
@@ -74,7 +69,7 @@ impl TsckApp {
     }
 
     fn process_cmd(&mut self, event_loop: &dyn ActiveEventLoop) {
-        let receiver = self.receiver.clone();
+        let receiver = self.channel_bus.get_receiver();
         let config = self.plugin_config.clone();
         while let Ok((cmd, request, window_id)) = receiver.try_recv() {
             match cmd {
@@ -82,11 +77,10 @@ impl TsckApp {
                     self.reload_config();
                 }
                 UserEvent::ActivateWorkSpace(_) => {
-                    get_window_by_label!(self, "main", |ws| {
+                    get_window_by_label!(self, "workspace", |ws| {
                         if let Ok(payload) =
                             IpcHelper::compile(EventPayload::FrontEnd.to_string(), cmd)
                         {
-                            log_debug!(&payload);
                             _ = ws.webview.evaluate_script(&payload);
                         }
                     });
@@ -98,12 +92,9 @@ impl TsckApp {
                                 let guard = ws.on_top.lock();
                                 *guard
                             };
-                            let response = IpcResponse::success(req.id, is_on_top);
-                            ws.webview
-                                .evaluate_script(&req.to_response_success(response))?;
+                            response_success!(ws.webview, req, is_on_top);
                             Ok(())
                         });
-                        // ws.window.set_minimized(true);
                     });
                 }
                 UserEvent::GetActiveWindows => {
@@ -116,18 +107,13 @@ impl TsckApp {
                                     exe: w.name(),
                                     class: w.class().to_string(),
                                     size: WindowSize::new(w.size().width, w.size().height),
-                                    position: WindowPosition::new(
-                                        w.position().x as f32,
-                                        w.position().y as f32,
-                                    ),
+                                    position: WindowPosition::new(w.position().x, w.position().y),
+                                    workspace: w.workspace(),
                                 })
                                 .collect();
-                            let response = IpcResponse::success(req.id, apps);
-                            ws.webview
-                                .evaluate_script(&req.to_response_success(response))?;
+                            response_success!(ws.webview, req, apps);
                             Ok(())
                         });
-                        // ws.window.set_minimized(true);
                     });
                 }
                 UserEvent::Minimize => {
@@ -295,18 +281,33 @@ impl TsckApp {
                 UserEvent::GoogleDownloadImage(url) => {
                     log_error!("Google Download Image", url);
                 }
+                UserEvent::IncomingWebsocketMessage(_id, _message) => {
+                    log_error!("UserEvent::IncomingWebsocketMessage");
+                }
+                UserEvent::CyclePages(direction) => {
+                    get_window_by_label!(self, "main", |ws| {
+                        if let Ok(payload) =
+                            IpcHelper::compile(EventPayload::FrontEnd.to_string(), cmd)
+                        {
+                            _ = ws.webview.evaluate_script(&payload);
+                        }
+                    });
+                }
+                _ => {
+                    log_debug!("Unimplemented", dp!(&cmd));
+                }
             }
         }
     }
     fn ipc_handler(&self, window_id: WindowId) -> impl Fn(Request<String>) + 'static {
-        let sender = self.sender.clone();
+        let channel_bus = self.channel_bus.clone();
         move |req| {
             let body = req.body();
             if let Ok(request) = serde_json::from_str::<IpcRequest>(body) {
                 let request = Arc::from(request);
                 if let Some(data) = request.data.clone() {
                     if let Ok(ev) = serde_json::from_value::<UserEvent>(data) {
-                        _ = sender.send((ev, Some(request), Some(window_id)));
+                        _ = channel_bus.send((ev, Some(request), Some(window_id)));
                     }
                 }
             }
@@ -326,6 +327,10 @@ impl TsckApp {
         let scale_factor = conf.webview_zoom_factor;
         let builder = WebViewBuilder::new()
             .with_url("http://localhost:5566")
+            .with_bounds(Rect {
+                position: Position::Logical(LogicalPosition::new(0.0, 0.0)),
+                size: Size::Physical(size.to_physical(scale_factor)),
+            })
             .with_initialization_script(include_str!("../scripts/init.js"))
             .with_ipc_handler(self.ipc_handler(window_id));
 
@@ -354,11 +359,15 @@ impl TsckApp {
                     None => "{}".to_string(),
                 };
 
-                let sender = self.sender.clone();
+                let channel_bus = self.channel_bus.clone();
                 let view = builder
                     .with_url(url)
                     .with_new_window_req_handler(move |url, _| {
-                        _ = sender.send((UserEvent::NavigateWebview(url), None, Some(window_id)));
+                        _ = channel_bus.send((
+                            UserEvent::NavigateWebview(url),
+                            None,
+                            Some(window_id),
+                        ));
                         wry::NewWindowResponse::Deny
                     })
                     .with_initialization_script(custom_script)
@@ -391,19 +400,21 @@ impl TsckApp {
                 true => winit::window::WindowLevel::AlwaysOnTop,
                 false => winit::window::WindowLevel::Normal,
             };
-            let attrs = WindowAttributes::default()
+            let window_attr = WindowAttributesWindows::default()
+                .with_system_backdrop(winit::platform::windows::BackdropType::None)
+                .with_skip_taskbar(window_conf.skip_taskbar)
+                .with_no_redirection_bitmap(true);
+            let attr = WindowAttributes::default()
                 .with_title(&title)
                 .with_transparent(window_conf.transparent)
                 .with_decorations(window_conf.decorations)
-                .with_surface_size(LogicalSize::new(0, 0))
-                // .with_surface_size(window_conf.window_size.to_logical_size())
+                .with_min_surface_size(window_conf.window_size.to_size())
+                .with_position(window_conf.window_position.to_position())
+                .with_platform_attributes(Box::new(window_attr))
                 .with_window_level(window_level);
-
-            let window = event_loop.create_window(attrs)?;
-            // window.set_system_backdrop(winit::platform::windows::BackdropType::TransientWindow);
-            window.set_corner_preference(winit::platform::windows::CornerPreference::Round);
-            // FIXME strangely, wry create white background that stay onload
-            // workaraound is to set the window size to zero and scale back in
+            let window = event_loop.create_window(attr)?;
+            window.set_undecorated_shadow(window_conf.shadow);
+            window.set_cursor_hittest(window_conf.receive_cursor_event)?;
             _ = window.request_surface_size(window_conf.window_size.to_size());
             let winconf = Arc::new(window_conf.clone());
             let window_id = window.id();
@@ -418,6 +429,7 @@ impl TsckApp {
 
 impl ApplicationHandler for TsckApp {
     fn can_create_surfaces(&mut self, _: &dyn ActiveEventLoop) {
+        log_error!("On Ready");
         // self.create_window(event_loop, "tsck".to_string())
         //     .expect("Error creating window");
     }

@@ -1,5 +1,5 @@
 #![allow(unused)]
-use crate::generate_func_enums;
+use crate::{directory::Dir, generate_func_enums};
 use anyhow::Result;
 pub use paste;
 use serde::{Deserialize, Serialize};
@@ -16,12 +16,8 @@ pub struct ConfigStore<T> {
 }
 
 impl<T> ConfigStore<T> {
-    fn root_dir(app_name: &str) -> Result<PathBuf> {
-        let base = std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME"))?;
-
-        let dir = Path::new(&base).join(".config").join(app_name);
-
-        fs::create_dir_all(&dir)?;
+    fn root_dir(app_name: &'static str) -> Result<PathBuf> {
+        let dir = Dir::store_path(app_name)?;
         Ok(dir)
     }
 }
@@ -30,9 +26,9 @@ impl<T> ConfigStore<T>
 where
     T: Serialize + for<'de> Deserialize<'de> + Default,
 {
-    pub fn new(app_name: &str, config_name: Option<&str>) -> Result<Self> {
+    pub fn new(app_name: &'static str, config_name: &'static str) -> Result<Self> {
         let dir = Self::root_dir(app_name)?;
-        let path = dir.join(config_name.unwrap_or("config.json"));
+        let path = dir.join(config_name);
 
         let data = if path.exists() {
             let content = fs::read_to_string(&path)?;
@@ -66,21 +62,11 @@ impl<T> ConfigStore<T>
 where
     T: Serialize,
 {
-    pub fn set(&mut self, f: impl FnOnce(&mut T)) -> Result<()> {
+    fn set(&mut self, f: impl FnOnce(&mut T)) -> Result<()> {
         f(&mut self.data);
         self.save()
     }
 }
-
-// "app::CYCLE",
-// "app::TSOCKEENUM",
-// "app::TSOCKEESWAP",
-// "app::PHOTOSHOP",
-// "app::LAUNCHPLUGIN",
-// "app::LAUNCHPLUGIN",
-// "app::TSOCKEENIR"
-// "workspace::TOGGLE",
-// "workspace::SKIP",
 
 struct FrmStrError;
 enum Entry {
@@ -98,30 +84,6 @@ impl FromStr for Entry {
         }
     }
 }
-
-enum AppFunc {
-    Cycle,
-    Tsockee,
-    Phothoshop,
-    LaunchPlugin,
-}
-enum WorkspaceFunc {
-    Toggle,
-}
-
-fn test() {}
-
-// enum FuncEntry {
-//     App,
-//     Workspace,
-// }
-// enum FuncFunction {
-//     Tsockee,
-//     LaunchPlugin,
-//     Photoshop,
-//     CycleApps,
-//     Toggle,
-// }
 
 #[cfg(test)]
 mod test_config {
@@ -159,7 +121,7 @@ mod test_config {
     }
     #[test]
     fn test_config() -> anyhow::Result<()> {
-        let mut config = ConfigStore::<TestConfig>::new("test_app", Some("test_config.json"))?;
+        let mut config = ConfigStore::<TestConfig>::new("test_app", "test_config.json")?;
         config.set(|c| {
             c.monitors = vec![(1200, 600), (800, 480)];
             c.apps = vec!["app1".to_string(), "app2".to_string()];
@@ -169,7 +131,7 @@ mod test_config {
     }
     #[test]
     fn get_config() -> anyhow::Result<()> {
-        let config = ConfigStore::<TestConfig>::new("test_app", Some("test_config.json"))?;
+        let config = ConfigStore::<TestConfig>::new("test_app", "test_config.json")?;
         let c: Vec<String> = config.get(|c| c.kees.iter().map(|(k, v)| v.clone()).collect());
         c.iter().for_each(|c| {
             if let Some(cmd) = parse_func(c) {
@@ -197,13 +159,6 @@ mod test_config {
                         }
                     }
                 }
-                // if let Ok(cmd) = Command::from_str(namespace) {
-                //     match cmd {
-                //         Command::WorkSpace => todo!(),
-                //         Command::Action => todo!(),
-                //         Command::Args => todo!(),
-                //     }
-                // }
             }
         });
         Ok(())

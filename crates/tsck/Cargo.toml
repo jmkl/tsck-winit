@@ -8,10 +8,21 @@ anyhow.workspace = true
 chrono.workspace = true
 flume.workspace = true
 kee = { path = "../../../kee/" }
+mime_guess = "2.0.5"
 parking_lot.workspace = true
+regex-lite = "0.1.8"
+rusqlite = { version = "0.38.0", features = ["bundled"] }
+rust-embed-for-web = { version = "11.3.0", default-features = false }
 serde.workspace = true
 serde_json.workspace = true
 ts-rs = "11.1"
 tsck-utils = { path = "../tsck-utils" }
+tungstenite = { version = "0.28.0", default-features = false, features = [
+  "handshake",
+] }
+ureq = { version = "3.1.4", default-features = false, features = [
+  "json",
+  "rustls"
+] }
 winit.workspace = true
 wry.workspace = true
