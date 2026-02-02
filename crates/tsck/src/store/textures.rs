@@ -123,7 +123,6 @@ impl Model for Texture {
     }
 }
 
-#[cfg(test)]
 mod texture_test {
     use crate::{
         store::{
@@ -133,7 +132,6 @@ mod texture_test {
         transaction,
     };
     use anyhow;
-    #[test]
     fn walk_dir() -> anyhow::Result<()> {
         let result = TextureScanner::scan(std::path::Path::new(
             r"I:\_GOOGLE DRIVE\GOOGLE DRIVE RK\THUMBNAIL\_ROOT\texture",
@@ -141,7 +139,6 @@ mod texture_test {
         println!("{:?}", result.get(0));
         Ok(())
     }
-    #[test]
     fn create_table() -> anyhow::Result<()> {
         let texture_path =
             std::path::Path::new(r"I:\_GOOGLE DRIVE\GOOGLE DRIVE RK\THUMBNAIL\_ROOT\texture");

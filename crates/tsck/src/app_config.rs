@@ -1,25 +1,70 @@
+use crate::cmd::CommandConfig;
+use crate::event::TS_PATH;
+use crate::{DOTFILE_DIR, ts_struct};
 use kee::TKeePair;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use ts_rs::TS;
 use tsck_utils::ConfigStore;
 
-use crate::DOTFILE_DIR;
+ts_struct! { path = TS_PATH,
+    pub struct RawFilterDataType {
+    pub temp: i32,
+    pub tint: i32,
+    pub texture: i32,
+    pub clarity: i32,
+    pub dehaze: i32,
+    pub sharpen: i32,
+    pub sharpen_radius: f32,
+    pub sharpen_detail: i32,
+    pub noise_reduction: i32,
+    pub noise_reduction_detail: i32,
+}
+}
+
+impl Default for RawFilterDataType {
+    fn default() -> Self {
+        Self {
+            temp: 0,
+            tint: 0,
+            texture: 0,
+            clarity: 0,
+            dehaze: 0,
+            sharpen: 0,
+            sharpen_radius: 1.0,
+            sharpen_detail: 25,
+            noise_reduction: 0,
+            noise_reduction_detail: 50,
+        }
+    }
+}
+
+ts_struct! { path = TS_PATH,
+pub struct RawFilterTemplate {
+    pub name: String,
+    pub value: RawFilterDataType,
+}
+}
 
 macro_rules! app_config {
 	(
 		$struct_name:ident => $struct_name_handler:ident,
 		custom:  ($($custom_func:item)*),
 		$($field:ident : $a:ty),+) => {
-				#[derive(Serialize, Debug, Clone, Deserialize, Default)]
+				#[derive(Serialize, Debug, Clone, Deserialize, Default,TS)]
+				#[ts(export,export_to=TS_PATH)]
 				#[serde(default)]
         pub struct $struct_name{
         	$(pub $field:$a),+
         }
         pub struct $struct_name_handler {
-        	config_store:ConfigStore<AppConfig>
+        	pub(crate) config_store:ConfigStore<AppConfig>
         }
         impl $struct_name_handler{
         	pub fn new()->Self{Self{config_store:Self::get()}}
+        	pub fn update_config(&mut self,config:AppConfig){
+         			_ = self.config_store.set(|c|*c=config);
+         }
          	pub fn get()->ConfigStore<AppConfig>{ConfigStore::<AppConfig>::new(DOTFILE_DIR, "conf.json").expect("Failed to load conf.json")}
           $($custom_func)*
           $(
@@ -47,14 +92,21 @@ app_config!(
     monitors							: Vec<(i32, i32)>,
     apps									: Vec<String>,
     pages									: Vec<String>,
-    worskpace							: Vec<String>,
+    workspaces						: Vec<String>,
     kees									: HashMap<String, String>,
     version								: String,
     store_root						: String,
     http_server_port			: u16,
+    whatsapp_bot_port			: u16,
+    comfyui_url						: String,
+    comfyui_root					: String,
     websocket_server_port	: u16,
     move_increment				: i32,
-    resize_increment			: i32
+    resize_increment			: i32,
+    rawfilter_template		: Vec<RawFilterTemplate>,
+    command_config				: CommandConfig,
+    color_list						: Vec<String>,
+    whatsapp_url					: String
 
 );
 

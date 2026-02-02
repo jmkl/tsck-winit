@@ -9,7 +9,15 @@
 				"decorations": false,
 				"always_on_top": false,
 				"shadow": false,
-				"window_src": { "Local": "/" }
+				"window_src": { "Local": "/" },
+				"window_size": {
+					"width": 320,
+					"height": 200
+				},
+				"window_position": {
+					"x": 1800,
+					"y": 1150
+				}
 			}
 		},
 		"workspace": {

@@ -1,3 +1,4 @@
+#![allow(unused)]
 pub mod ws {
     use anyhow::Context;
     use flume::{Receiver, Sender, unbounded};

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/tsck", "crates/tsck-cli", "crates/tsck-utils"]
+members = ["crates/rust-book","crates/tsck", "crates/tsck-cli", "crates/tsck-utils"]
 
 [workspace.dependencies]
 anyhow = "1.0.100"

@@ -62,7 +62,7 @@ impl<T> ConfigStore<T>
 where
     T: Serialize,
 {
-    fn set(&mut self, f: impl FnOnce(&mut T)) -> Result<()> {
+    pub fn set(&mut self, f: impl FnOnce(&mut T)) -> Result<()> {
         f(&mut self.data);
         self.save()
     }
@@ -132,6 +132,7 @@ mod test_config {
     #[test]
     fn get_config() -> anyhow::Result<()> {
         let config = ConfigStore::<TestConfig>::new("test_app", "test_config.json")?;
+        let appconfig = TestConfig::default();
         let c: Vec<String> = config.get(|c| c.kees.iter().map(|(k, v)| v.clone()).collect());
         c.iter().for_each(|c| {
             if let Some(cmd) = parse_func(c) {

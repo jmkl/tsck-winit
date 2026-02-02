@@ -1,19 +1,8 @@
 <script lang="ts">
-	import '$lib/layout.css';
-
-	let { children } = $props();
-	let focus = $state(false);
-	const padding = 2;
+  import "$lib/layout.css";
+  let { children } = $props();
 </script>
 
-<svelte:window
-	onblur={() => {
-		focus = false;
-	}}
-	onfocus={() => {
-		focus = true;
-	}}
-/>
-<div class="absolute inset-0 overflow-hidden">
-	{@render children()}
+<div tabindex="-1" class="absolute inset-0 overflow-hidden">
+  {@render children()}
 </div>

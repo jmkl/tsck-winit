@@ -1,0 +1,18 @@
+[package]
+name = "rust-book"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow.workspace = true
+mime_guess = "2.0.5"
+rust-embed-for-web = { version = "11.3.0", default-features = false }
+winit.workspace = true
+wry = { workspace = true, features = ["protocol"] }
+
+[profile.release]
+opt-level = 3  # 0-3, atau "s", "z"
+strip = true  # buang symbol (Rust 1.60+)
+lto = true  # Link Time Optimization
+panic = "abort"  # binary lebih kecil
+codegen-units = 1  # lebih lambat build, binary lebih cepat

@@ -1,8 +1,16 @@
 use std::sync::Arc;
 
 use crate::{
+    app_config::{AppConfig, RawFilterTemplate},
     ipc::IpcRequest,
+    photoshop::{
+        SmartObjectItem,
+        ps_misc::{Bounds, RawFilterTextPipRange, SelectionBound},
+        ps_rawfilter::RawFilterDataType,
+        ps_template::Template,
+    },
     store::config::{ToolbarPanel, WindowPosition, WindowSize},
+    ts_struct,
     utils::animation::AnimationPayload,
 };
 use serde::{Deserialize, Serialize};
@@ -34,11 +42,14 @@ pub enum EventPayload {
     BackEnd,
     #[ts(rename = "tsck::event|EVENTPAYLOAD::HOTKEE")]
     Hotkee,
+    #[ts(rename = "tsck::event|EVENTPAYLOAD::COMMAND")]
+    Command,
 }
 
 impl_display!(EventPayload, "tsck::event", {
     FrontEnd,
     BackEnd,
+    Command,
     Hotkee
 });
 
@@ -54,11 +65,29 @@ pub struct WindowInfoExt {
 }
 
 pub type ChannelEvent = (UserEvent, Option<Arc<IpcRequest>>, Option<WindowId>);
-pub const TS_PATH: &str = "../../../js/frontend/src/lib/tsck.types.ts";
+pub const TS_PATH: &str = "../../../js/@tsck/src/tsck.types.ts";
+
+#[derive(Clone, Deserialize, Serialize, Debug, TS)]
+#[ts(export,export_to=TS_PATH)]
+#[serde(untagged)]
+pub enum FuncCallArgs {
+    Number(i32),
+    Text(String),
+    Boolean(bool),
+}
+ts_struct! {
+    path = TS_PATH,
+    pub enum WinLevel{
+    Normal,
+    Top,
+    Bottom
+    }
+}
 #[derive(Clone, Deserialize, Serialize, Debug, TS)]
 #[serde(tag = "type", content = "value")]
 #[ts(export,export_to=TS_PATH)]
 pub enum UserEvent {
+    WindowFocusChange(bool),
     ReloadConfig,
     Minimize,
     Maximize,
@@ -73,7 +102,7 @@ pub enum UserEvent {
     NavigateWebview(String),
     ZoomWebview(f32),
     UpdateToolbarPanel(ToolbarPanel),
-    SetWindowOnTop(bool),
+    SetWindowLevel(WinLevel),
     SetWindowDecorated(bool),
     SetWindowShadow(bool),
     SetWindowSize(WindowSize),
@@ -85,4 +114,112 @@ pub enum UserEvent {
     CyclePages(i32),
     GetActiveWindows,
     IncomingWebsocketMessage(u64, String),
+    //PHOTOSHOP
+    Template {
+        template: Template,
+    },
+    LoadingState {
+        loading: bool,
+    },
+    UpdateTextureFavorite(i32, bool),
+    FetchTextures(String, usize, usize),
+    FetchTextureCategories,
+    SmartObjectDelete(SmartObjectItem),
+    SmartobjectThumbnailUpdate {
+        name: String,
+        thumb: String,
+    },
+    FilterSmartObjectChunk {
+        query: String,
+        page: usize,
+        per_page: usize,
+    },
+    FunctionCall {
+        func: String,
+        args: Vec<FuncCallArgs>,
+    },
+    GetAppConfig,
+    SetAppConfig(AppConfig),
+    SelectionChanged(SelectionBound),
+    RawFilterDataUpdate(RawFilterDataType),
+    PerformSelectionToImage,
+    PerformLayerToImage,
+    GenerateImage,
+    FacerestorePreviewImage(Vec<String>),
+    AppendComfyUIOutput {
+        images: Vec<String>,
+        bounds: Bounds,
+    },
+
+    RawFilterTextPipRange(RawFilterTextPipRange),
+    ApplyRawFilter(RawFilterDataType),
+    ApplyTriColor {
+        tri_color: Vec<String>,
+        position: Vec<i32>,
+    },
+    PipRanges(Vec<i32>),
+    RequestCommand,
+    RunCommand(String),
+    KillCommand(String),
+    ReloadCommandConfig,
+    UpdateRawfilterTemplates(Vec<RawFilterTemplate>),
+    UpdateActiveApps,
+    ExecuteScript(String),
+    BroadcastToFrontEnd(String, String),
+    ToggleShadow,
+    YoutubeTitle(String),
+    YoutubeTitleWithApiKey(String, String),
+    ToggleCompactMode,
+    FocusPage(i32),
+    ToggleWindowLevel,
+
+    WhatsappUpdate {
+        #[serde(rename = "type")]
+        msg_type: String,
+    },
+}
+ts_struct! {path = TS_PATH,
+    #[serde(untagged)]
+    pub enum WsPayloadContent {
+        Text(String),
+        Bool(bool),
+        List(Vec<String>),
+        Listi32(Vec<i32>),
+        Tuple(String, String),
+        SelectionBound(SelectionBound),
+        RawFilterDataType(RawFilterDataType),
+        RawFilterTextPipRange(RawFilterTextPipRange),
+        Null,
+    }
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[serde(rename_all = "kebab-case")]
+#[ts(export, export_to = TS_PATH)]
+pub enum WsPayloadType {
+    Whatsapp,
+    ShowLoading,
+    Unknown,
+    CreateThumb,
+    SelectionMode,
+    RawFilterInfo,
+    CropSelectionToImage,
+    SelectedLayerToImage,
+    GenerateImage,
+    FacerestorePreviewImage,
+    PushToWhatsapp,
+    //- receive all textlayer top pos ---> plugin send it array of i32 -> PipRange: Vec<i32> PipRange(Vec<i32>)
+    PipRanges, //- send tricolor data + piprange color:["#fff","#fff","#fff"],pipRanges:[0,2,3,4,5] PipNTriColor{colors:Vec<String>,pip_ranges:Vec<i32>}
+    RawFilterTextPipRange, //it return {textlaye,pipRanges,rawfiltertype}
+    ExecuteScript,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export, export_to = TS_PATH)]
+pub struct WsMessagePayload {
+    pub from_server: bool,
+    #[serde(rename = "type")]
+    pub msg_type: WsPayloadType,
+    pub content: WsPayloadContent,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub channel: Option<String>,
 }
