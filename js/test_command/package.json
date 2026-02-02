@@ -1,0 +1,15 @@
+{
+	"name": "test_command",
+	"module": "index.ts",
+	"type": "module",
+	"private": true,
+	"devDependencies": {
+		"@types/bun": "latest"
+	},
+	"scripts": {
+		"dev": "deno run index.ts"
+	},
+	"peerDependencies": {
+		"typescript": "^5"
+	}
+}

@@ -61,8 +61,8 @@ impl SmartObjects {
                 .collect(),
         }
     }
-    pub fn add_file(&mut self, new_item: SmartObjectItem) {
-        self.files.push(new_item);
+    pub fn add_file(&mut self, new_item: &SmartObjectItem) {
+        self.files.push(new_item.clone());
     }
     pub fn remove_file(&mut self, file_name: &str) {
         if let Some(pos) = self.files.iter().position(|item| item.name == file_name) {

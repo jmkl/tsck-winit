@@ -1,6 +1,6 @@
 use std::{str::FromStr, sync::Arc, time::Instant};
 
-use crate::{ChannelBus, app_config::AppConfigHandler, event::UserEvent, log_error};
+use crate::{ChannelBus, app_config::AppConfigHandler, dp, event::UserEvent, log_debug, log_error};
 use kee::{Event, Kee, SafeHWND, TKeePair, WindowInfo, list_windows};
 use parking_lot::Mutex;
 use tsck_utils::{Expr, generate_func_enums, parse_func};
@@ -14,7 +14,15 @@ generate_func_enums!(
             CycleApps,
             Broadcast,
             ReloadConfig,
-            CyclePages
+            CyclePages,
+            Page,
+            Script,
+            FuncCall,
+            ToggleShadow,
+            ToggleWindowLevel,
+            ToggleCompactMode
+
+
         )
         Workspace => (
             CycleWorkSpace,
@@ -145,7 +153,6 @@ fn _spawn_hotkee(bus: Arc<ChannelBus>) -> anyhow::Result<()> {
     let apps = Arc::new(Mutex::new(WindowOpsHandler::new()));
     let apps = apps.clone();
     let channel_bus = bus.clone();
-
     let kee = Kee::new();
     let kee = Arc::new(Mutex::new(kee));
     let key_for_message = kee.clone();
@@ -211,6 +218,62 @@ fn _spawn_hotkee(bus: Arc<ChannelBus>) -> anyhow::Result<()> {
                                             }
                                             _ => {}
                                         },
+                                        AppFunc::Page => match cmd.args.as_slice() {
+                                            [Expr::Number(page)] => {
+                                                _ = channel_bus.send((
+                                                    UserEvent::FocusPage(*page as i32),
+                                                    None,
+                                                    None,
+                                                ));
+                                            }
+                                            _ => {}
+                                        },
+                                        AppFunc::Script => match cmd.args.as_slice() {
+                                            [Expr::Ident(script)] => {
+                                                let mut script = script.replace("-", " ");
+                                                script.push_str(".js");
+                                                _ = channel_bus.send((
+                                                    UserEvent::ExecuteScript(script),
+                                                    None,
+                                                    None,
+                                                ));
+                                            }
+                                            _ => {}
+                                        },
+                                        AppFunc::FuncCall => match cmd.args.as_slice() {
+                                            [Expr::Ident(func)] => {
+                                                _ = channel_bus.send((
+                                                    UserEvent::FunctionCall {
+                                                        func: func.to_string(),
+                                                        args: vec![],
+                                                    },
+                                                    None,
+                                                    None,
+                                                ));
+                                            }
+                                            _ => {}
+                                        },
+                                        AppFunc::ToggleShadow => {
+                                            _ = channel_bus.send((
+                                                UserEvent::ToggleShadow,
+                                                None,
+                                                None,
+                                            ));
+                                        }
+                                        AppFunc::ToggleWindowLevel => {
+                                            _ = channel_bus.send((
+                                                UserEvent::ToggleWindowLevel,
+                                                None,
+                                                None,
+                                            ));
+                                        }
+                                        AppFunc::ToggleCompactMode => {
+                                            _ = channel_bus.send((
+                                                UserEvent::ToggleCompactMode,
+                                                None,
+                                                None,
+                                            ));
+                                        }
                                     }
                                 }
                             }

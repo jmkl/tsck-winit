@@ -1,0 +1,17 @@
+#:schema https://dystroy.org/bacon/.bacon.schema.json
+
+default_job = "tsck"
+env.CARGO_TERM_COLOR = "always"
+
+[jobs.tsck]
+command = ["cargo", "run", "-p", "tsck", "--quiet"]
+allow_warnings = true
+on_change_strategy = "kill_then_restart"
+watch = ["crates/tsck/src/*", "crates/tsck-utils/src/*"]
+ignore = ["*"]
+need_stdout = true
+
+[jobs.frontend]
+command = ["bun", "run", "--cwd=js/frontend", "dev"]
+allow_warnings = true
+need_stdout = true

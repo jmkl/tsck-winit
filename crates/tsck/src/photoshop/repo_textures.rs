@@ -46,8 +46,7 @@ impl TextureRepo {
                 |row| Ok(row.get::<_, String>("category")?),
             )
         });
-        log_error!(dp!(result));
-        Ok(Vec::new())
+        result
     }
     pub fn get_textures_chunk(&self, page: usize, limit: usize) -> Result<PageChunk<Texture>> {
         self.db

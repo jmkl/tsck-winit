@@ -1,3 +1,4 @@
+#![allow(unused)]
 use parking_lot::Mutex;
 use std::{
     collections::HashMap,
@@ -644,8 +645,6 @@ mod example {
 
                     _ => Response::not_found(),
                 }
-            })
-            .listen()
-            .expect("Server failed");
+            });
     }
 }

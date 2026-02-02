@@ -2,7 +2,7 @@
 	import { invokePayload } from '$lib';
 	import gsap from 'gsap';
 	let closeBtn: HTMLOrSVGElement | undefined;
-	let maxBtn: HTMLOrSVGElement | undefined;
+	let maxBtn: HTMLOrSVGElement | undefined = $state();
 	let minimizeButton: HTMLOrSVGElement | undefined;
 	const def = { duration: 0.5, ease: 'elastic.out(1,.3)' };
 	let { maximizeBtn = false } = $props();

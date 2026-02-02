@@ -15,6 +15,7 @@ rusqlite = { version = "0.38.0", features = ["bundled"] }
 rust-embed-for-web = { version = "11.3.0", default-features = false }
 serde.workspace = true
 serde_json.workspace = true
+shared_child = "1.1.1"
 ts-rs = "11.1"
 tsck-utils = { path = "../tsck-utils" }
 tungstenite = { version = "0.28.0", default-features = false, features = [

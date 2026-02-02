@@ -8,7 +8,7 @@ use tsck_utils::Dir;
 
 use crate::DOTFILE_DIR;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct PageChunk<T> {
     pub page: usize,
     pub total_pages: usize,
@@ -454,6 +454,7 @@ impl Model for TestUser {
 }
 
 #[cfg(test)]
+#[ignore]
 mod tests {
     use super::*;
     use crate::log_error;

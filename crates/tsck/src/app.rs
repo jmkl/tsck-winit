@@ -1,9 +1,15 @@
-use crate::event::{EventPayload, UserEvent, WindowInfoExt};
+use crate::event::{
+    EventPayload, UserEvent, WinLevel, WindowInfoExt, WsMessagePayload, WsPayloadContent,
+};
 use crate::ipc::{IpcHelper, IpcRequest, IpcResponse};
+use crate::photoshop::customscripts::CustomScripts;
 use crate::store::config::{ConfigParser, PluginConf, WindowPosition, WindowSize, WindowSrc};
 use crate::utils::animation::map_value;
+use crate::utils::download::dl_image;
+use crate::utils::url_encode;
 use crate::utils::winview_util::webview_bounds;
-use crate::{ChannelBus, WindowState, dp, log_debug, log_error, response_success};
+use crate::utils::youtubeapi::YoutubeApi;
+use crate::{ChannelBus, WindowState, dp, log_debug, log_error, log_warn, response_success};
 use kee::list_windows;
 use std::collections::HashMap;
 use std::path::Path;
@@ -45,6 +51,16 @@ macro_rules! get_window {
     };
 }
 
+macro_rules! to_frontend {
+    ($self:expr,$content:expr) => {
+        get_window_by_label!($self, "main", |ws| {
+            if let Ok(payload) = IpcHelper::compile(EventPayload::FrontEnd.to_string(), $content) {
+                _ = ws.webview.evaluate_script(&payload);
+            }
+        });
+    };
+}
+type UE = UserEvent;
 impl TsckApp {
     pub fn new(channel_bus: Arc<ChannelBus>) -> Self {
         let config = ConfigParser::parse(include_str!("../tsck.json"));
@@ -63,7 +79,7 @@ impl TsckApp {
     fn init(sender: &Arc<ChannelBus>, config: &ConfigParser) {
         for (name, plugin) in &config.plugins {
             if plugin.with_window && plugin.window.as_ref().is_some_and(|w| w.auto_launch) {
-                let _ = sender.send((UserEvent::LaunchPlugin(name.clone()), None, None));
+                let _ = sender.send((UE::LaunchPlugin(name.clone()), None, None));
             }
         }
     }
@@ -73,10 +89,10 @@ impl TsckApp {
         let config = self.plugin_config.clone();
         while let Ok((cmd, request, window_id)) = receiver.try_recv() {
             match cmd {
-                UserEvent::ReloadConfig => {
+                UE::ReloadConfig => {
                     self.reload_config();
                 }
-                UserEvent::ActivateWorkSpace(_) => {
+                UE::ActivateWorkSpace(_) => {
                     get_window_by_label!(self, "workspace", |ws| {
                         if let Ok(payload) =
                             IpcHelper::compile(EventPayload::FrontEnd.to_string(), cmd)
@@ -85,19 +101,19 @@ impl TsckApp {
                         }
                     });
                 }
-                UserEvent::IsOnTop => {
+                UE::IsOnTop => {
                     get_window!(self, window_id, |ws| {
                         request.map(|req| -> anyhow::Result<()> {
                             let is_on_top = {
-                                let guard = ws.on_top.lock();
-                                *guard
+                                let guard = ws.win_level.lock();
+                                guard.clone()
                             };
                             response_success!(ws.webview, req, is_on_top);
                             Ok(())
                         });
                     });
                 }
-                UserEvent::GetActiveWindows => {
+                UE::GetActiveWindows => {
                     get_window!(self, window_id, |ws| {
                         request.map(|req| -> anyhow::Result<()> {
                             let apps: Vec<WindowInfoExt> = list_windows()
@@ -116,12 +132,12 @@ impl TsckApp {
                         });
                     });
                 }
-                UserEvent::Minimize => {
+                UE::Minimize => {
                     get_window!(self, window_id, |ws| {
                         ws.window.set_minimized(true);
                     });
                 }
-                UserEvent::Maximize => {
+                UE::Maximize => {
                     get_window!(self, window_id, |ws| {
                         if ws.window.is_maximized() {
                             ws.window.set_maximized(false);
@@ -130,14 +146,14 @@ impl TsckApp {
                         }
                     });
                 }
-                UserEvent::DragWindow => {
+                UE::DragWindow => {
                     if let Some(window_id) = window_id {
                         if let Some(ws) = self.windows.get(&window_id) {
                             _ = ws.window.drag_window();
                         }
                     }
                 }
-                UserEvent::CloseWindow => {
+                UE::CloseWindow => {
                     if let Some(window_id) = window_id {
                         self.windows.remove(&window_id);
                         if self.windows.is_empty() {
@@ -145,19 +161,18 @@ impl TsckApp {
                         }
                     }
                 }
-                UserEvent::MouseDown(_, _) => {
-                    // println!("UserEvent::MouseDown");
+                UE::MouseDown(_, _) => {
+                    // println!("UE::MouseDown");
                 }
-                UserEvent::MouseMove(_, _) => {
-                    // println!("UserEvent::MouseMove");
+                UE::MouseMove(_, _) => {
+                    // println!("UE::MouseMove");
                 }
-                UserEvent::LaunchPlugin(plugin_name) => {
+                UE::LaunchPlugin(plugin_name) => {
                     if let Some((_, ws)) = self
                         .windows
                         .iter()
                         .find(|(_, ws)| &ws.title == &plugin_name)
                     {
-                        log_debug!("WINDOW EXIST", "SET FOUCS");
                         ws.window.focus_window();
                         _ = ws.webview.focus();
                         return;
@@ -166,63 +181,55 @@ impl TsckApp {
                         _ = self.create_window(event_loop, plugin_name, plugin_conf);
                     }
                 }
-                UserEvent::EvalJs(js) => {
+                UE::EvalJs(js) => {
                     get_window!(self, window_id, |ws| {
                         _ = ws.webview.evaluate_script(&js);
                     });
                 }
-                UserEvent::LoadUrl(url) => {
+                UE::LoadUrl(url) => {
                     get_window!(self, window_id, |ws| {
                         _ = ws.webview.load_url(&url);
                     });
                 }
-                UserEvent::NavigateWebview(url) => {
+                UE::NavigateWebview(url) => {
                     get_window!(self, window_id, |ws| {
                         _ = ws.webview.load_url(&url);
                     });
                 }
-                UserEvent::ZoomWebview(scale_factor) => {
+                UE::ZoomWebview(scale_factor) => {
                     get_window!(self, window_id, |ws| {
                         let scale = (scale_factor as f64).clamp(0.3, 1.5);
                         _ = ws.webview.zoom(scale);
                     });
                 }
-                UserEvent::UpdateToolbarPanel(_toolbar_panel) => {
-                    println!("UserEvent::UpdateToolbarPanel");
-                }
-                UserEvent::SetWindowOnTop(on_top) => {
+
+                UE::SetWindowLevel(level) => {
                     get_window!(self, window_id, |ws| {
-                        let window_level = match on_top {
-                            true => winit::window::WindowLevel::AlwaysOnTop,
-                            false => winit::window::WindowLevel::Normal,
+                        let window_level = match level {
+                            WinLevel::Top => winit::window::WindowLevel::AlwaysOnTop,
+                            WinLevel::Normal => winit::window::WindowLevel::Normal,
+                            WinLevel::Bottom => winit::window::WindowLevel::AlwaysOnBottom,
                         };
                         {
-                            let mut guard = ws.on_top.lock();
-                            *guard = on_top;
+                            let mut guard = ws.win_level.lock();
+                            *guard = level;
                         }
                         ws.window.set_window_level(window_level);
                     });
                 }
-                UserEvent::SetWindowDecorated(_) => {
-                    println!("UserEvent::SetWindowDecorated");
-                }
-                UserEvent::SetWindowShadow(_) => {
-                    println!("UserEvent::SetWindowShadow");
-                }
-                UserEvent::SetWindowSize(window_size) => {
+
+                UE::SetWindowSize(window_size) => {
                     get_window!(self, window_id, |ws| {
                         _ = ws.window.request_surface_size(window_size.to_size());
                     });
                 }
-                UserEvent::SetWindowPosition(window_position) => {
+                UE::SetWindowPosition(window_position) => {
                     get_window!(self, window_id, |ws| {
                         ws.window.set_outer_position(window_position.to_position());
                     });
                 }
-                UserEvent::SetIgnoreCursorEvent(_) => {
-                    println!("UserEvent::SetIgnoreCursorEvent");
-                }
-                UserEvent::TransformWindow(payload) => {
+
+                UE::TransformWindow(payload) => {
                     if let Some(window_id) = window_id {
                         if let Some(ws) = self.windows.get(&window_id) {
                             let pos = ws.window.outer_position().unwrap_or_default();
@@ -263,28 +270,205 @@ impl TsckApp {
 
                                 std::thread::sleep(FRAME_TIME);
                             }
-                            // ws.window.set_outer_position(Position::Physical(
-                            //     winit::dpi::PhysicalPosition {
-                            //         x: to_pos.0 as i32,
-                            //         y: to_pos.1 as i32,
-                            //     },
-                            // ));
-                            // _ = ws.window.request_surface_size(Size::Physical(
-                            //     winit::dpi::PhysicalSize {
-                            //         width: to_size.0 as u32,
-                            //         height: to_size.1 as u32,
-                            //     },
-                            // ));
+                            ws.window.set_outer_position(Position::Physical(
+                                winit::dpi::PhysicalPosition {
+                                    x: to_pos.0 as i32,
+                                    y: to_pos.1 as i32,
+                                },
+                            ));
+                            _ = ws.window.request_surface_size(Size::Physical(
+                                winit::dpi::PhysicalSize {
+                                    width: to_size.0 as u32,
+                                    height: to_size.1 as u32,
+                                },
+                            ));
                         }
                     };
                 }
-                UserEvent::GoogleDownloadImage(url) => {
-                    log_error!("Google Download Image", url);
+
+                UE::IncomingWebsocketMessage(_id, message) => {
+                    match serde_json::from_str::<WsMessagePayload>(&message) {
+                        Ok(mut m) => {
+                            m.from_server = true;
+                            match m.msg_type {
+                                crate::event::WsPayloadType::Whatsapp => {
+                                    let text = match &m.content {
+                                        WsPayloadContent::Text(t) => t.as_str(),
+                                        _ => "unknown",
+                                    };
+                                    to_frontend!(
+                                        self,
+                                        UE::WhatsappUpdate {
+                                            msg_type: text.to_string(),
+                                        }
+                                    );
+                                }
+                                crate::event::WsPayloadType::ShowLoading => {
+                                    let loading = match &m.content {
+                                        WsPayloadContent::Bool(t) => *t,
+                                        _ => false,
+                                    };
+                                    to_frontend!(self, UE::LoadingState { loading });
+                                }
+
+                                crate::event::WsPayloadType::CreateThumb => {
+                                    if let WsPayloadContent::Text(png_file) = m.content {
+                                        if let Some(smart_object_item) =
+                                            self.channel_bus.smartobject_create_thumb(&png_file)
+                                        {
+                                            to_frontend!(
+                                                self,
+                                                UE::SmartobjectThumbnailUpdate {
+                                                    name: smart_object_item.name,
+                                                    thumb: smart_object_item.thumb
+                                                }
+                                            );
+                                        }
+                                    }
+                                }
+                                crate::event::WsPayloadType::SelectionMode => {
+                                    if let WsPayloadContent::SelectionBound(selection_bound) =
+                                        m.content
+                                    {
+                                        to_frontend!(self, UE::SelectionChanged(selection_bound));
+                                    }
+                                }
+                                crate::event::WsPayloadType::RawFilterInfo => {
+                                    if let WsPayloadContent::RawFilterDataType(rawfilter_data) =
+                                        m.content
+                                    {
+                                        to_frontend!(self, UE::RawFilterDataUpdate(rawfilter_data));
+                                    }
+                                }
+
+                                crate::event::WsPayloadType::FacerestorePreviewImage => {
+                                    if let WsPayloadContent::List(img) = m.content {
+                                        to_frontend!(self, UE::FacerestorePreviewImage(img));
+                                    }
+                                }
+                                crate::event::WsPayloadType::PushToWhatsapp => {
+                                    if let WsPayloadContent::Text(filepath) = m.content {
+                                        let cfg = self.channel_bus.get_app_config();
+                                        let url = cfg.whatsapp_url;
+                                        let result = format!(
+                                            "http://{}/send-thumbnail?filepath={}&channel={}",
+                                            url,
+                                            url_encode(&filepath),
+                                            url_encode(&m.channel.unwrap_or("".to_string()))
+                                        );
+                                        if let Ok(mut response) = ureq::get(&result).call()
+                                            && let Ok(reply) = response.body_mut().read_to_string()
+                                        {
+                                            println!("ResponseBody {}", reply);
+                                        }
+                                    }
+                                }
+                                crate::event::WsPayloadType::PipRanges => {
+                                    if let WsPayloadContent::Listi32(values) = m.content {
+                                        to_frontend!(self, UE::PipRanges(values));
+                                    }
+                                }
+                                crate::event::WsPayloadType::RawFilterTextPipRange => {
+                                    if let WsPayloadContent::RawFilterTextPipRange(rtp) = m.content
+                                    {
+                                        to_frontend!(self, UE::RawFilterTextPipRange(rtp));
+                                    }
+                                }
+                                _ => {
+                                    log_warn!("WSMESSAGE UNIMPLEMENTED", dp!(m));
+                                }
+                            }
+                        }
+                        Err(err) => {
+                            log_error!("Error parsing WsMessagePayload", dp!(err));
+                        }
+                    }
                 }
-                UserEvent::IncomingWebsocketMessage(_id, _message) => {
-                    log_error!("UserEvent::IncomingWebsocketMessage");
+                UE::CyclePages(_) => {
+                    get_window_by_label!(self, "main", |ws| {
+                        if let Ok(payload) =
+                            IpcHelper::compile(EventPayload::FrontEnd.to_string(), cmd)
+                        {
+                            ws.window.focus_window();
+                            _ = ws.webview.evaluate_script(&payload);
+                        }
+                    });
                 }
-                UserEvent::CyclePages(direction) => {
+                UE::FilterSmartObjectChunk {
+                    query,
+                    page,
+                    per_page,
+                } => {
+                    let result = self
+                        .channel_bus
+                        .smartobject_filter_chunk(&query, page, per_page);
+
+                    get_window!(self, window_id, |ws| {
+                        request.map(|req| -> anyhow::Result<()> {
+                            response_success!(ws.webview, req, result);
+                            Ok(())
+                        });
+                    });
+                }
+                UE::FetchTextureCategories => {
+                    if let Some(result) = self.channel_bus.texture_get_all_categories() {
+                        get_window!(self, window_id, |ws| {
+                            request.map(|req| -> anyhow::Result<()> {
+                                response_success!(ws.webview, req, result);
+                                Ok(())
+                            });
+                        });
+                    }
+                }
+                UE::FetchTextures(category, page, limit) => {
+                    if let Some(result) = self
+                        .channel_bus
+                        .texture_get_texture_chunk(category, page, limit)
+                    {
+                        get_window!(self, window_id, |ws| {
+                            request.map(|req| -> anyhow::Result<()> {
+                                response_success!(ws.webview, req, result);
+                                Ok(())
+                            });
+                        });
+                    }
+                }
+                UE::GetAppConfig => {
+                    get_window!(self, window_id, |ws| {
+                        let app_config = self.channel_bus.get_app_config();
+                        request.map(|req| -> anyhow::Result<()> {
+                            response_success!(ws.webview, req, app_config);
+                            Ok(())
+                        });
+                    });
+                }
+                UE::SetAppConfig(config) => {
+                    self.channel_bus.update_app_config(config);
+                }
+                UE::UpdateTextureFavorite(id, favorite) => {
+                    self.channel_bus.texture_update_favorite(id, favorite);
+                }
+                UE::RequestCommand => {
+                    get_window!(self, window_id, |ws| {
+                        let result = self.channel_bus.cmd_request_command();
+                        request.map(|req| -> anyhow::Result<()> {
+                            response_success!(ws.webview, req, result);
+                            Ok(())
+                        });
+                    });
+                }
+                UE::RunCommand(app_name) => {
+                    self.channel_bus.cmd_run_command(app_name);
+                }
+                UE::KillCommand(cmd_name) => {
+                    self.channel_bus.cmd_kill_command(cmd_name);
+                }
+                UE::BroadcastToFrontEnd(target, script) => {
+                    get_window_by_label!(self, target, |ws| {
+                        _ = ws.webview.evaluate_script(&script);
+                    });
+                }
+                UE::WindowFocusChange(_) => {
                     get_window_by_label!(self, "main", |ws| {
                         if let Ok(payload) =
                             IpcHelper::compile(EventPayload::FrontEnd.to_string(), cmd)
@@ -293,8 +477,83 @@ impl TsckApp {
                         }
                     });
                 }
+                UE::FunctionCall { .. }
+                | UE::ApplyRawFilter(..)
+                | UE::PerformSelectionToImage
+                | UE::PerformLayerToImage
+                | UE::GenerateImage
+                | UE::ApplyTriColor { .. }
+                | UE::AppendComfyUIOutput { .. } => {
+                    self.channel_bus.broadcast_to_websocket(cmd);
+                }
+                UE::Template { template } => {
+                    self.channel_bus.broadcast_to_websocket(UE::Template {
+                        template: template.modify(),
+                    });
+                }
+                UE::UpdateRawfilterTemplates(templates) => {
+                    _ = self
+                        .channel_bus
+                        .get_config()
+                        .lock()
+                        .config_store
+                        .set(|c| c.rawfilter_template = templates);
+                }
+                UE::GoogleDownloadImage(url) => {
+                    let comfyui_root = &self.channel_bus.get_app_config().comfyui_root;
+                    if let Some(payload) = dl_image(&url, comfyui_root) {
+                        self.channel_bus.broadcast_to_websocket(payload);
+                    }
+                }
+                UE::SmartObjectDelete(smart_object_item) => {
+                    self.channel_bus.smartobject_delete(smart_object_item);
+                    get_window_by_label!(self, "main", |ws| {
+                        request.map(|req| -> anyhow::Result<()> {
+                            response_success!(ws.webview, req, true);
+                            Ok(())
+                        });
+                    });
+                }
+                UE::YoutubeTitle(video_url) => {
+                    if let Ok(response) = YoutubeApi::new().fetch(&video_url) {
+                        get_window_by_label!(self, "main", |ws| {
+                            request.map(|req| -> anyhow::Result<()> {
+                                response_success!(ws.webview, req, response);
+                                Ok(())
+                            });
+                        });
+                    }
+                }
+                UserEvent::ExecuteScript(script) => {
+                    let cs_script = self.channel_bus.get_app_config().store_root;
+                    let customscripts = Path::new(&cs_script).join("customscripts");
+                    if let Ok(scr) = CustomScripts::new().script_to_str(&customscripts, &script) {
+                        log_debug!(&scr);
+                        if let Ok(payload) = serde_json::to_string(&UE::ExecuteScript(scr)) {
+                            self.channel_bus.ws_send_to_all(payload);
+                        }
+                    }
+                }
+
+                UserEvent::FocusPage(..)
+                | UserEvent::ToggleShadow
+                | UserEvent::ToggleWindowLevel
+                | UserEvent::ToggleCompactMode => {
+                    to_frontend!(self, cmd);
+                }
+                UE::YoutubeTitleWithApiKey(video_url, api_key) => {
+                    if let Ok(response) = YoutubeApi::with_api(api_key).fetch(&video_url) {
+                        get_window_by_label!(self, "main", |ws| {
+                            request.map(|req| -> anyhow::Result<()> {
+                                response_success!(ws.webview, req, response);
+                                Ok(())
+                            });
+                        });
+                    }
+                }
+
                 _ => {
-                    log_debug!("Unimplemented", dp!(&cmd));
+                    log_error!("UNIMPLEMENTED", dp!(cmd));
                 }
             }
         }
@@ -347,7 +606,6 @@ impl TsckApp {
                     Some(script) => {
                         let parent = env!("CARGO_MANIFEST_DIR");
                         let script_path = Path::new(parent).join(script);
-                        log_debug!("SCRIPT", script_path.to_string_lossy().to_string());
                         match std::fs::read_to_string(script_path) {
                             Ok(scripts) => scripts,
                             Err(err) => {
@@ -363,11 +621,7 @@ impl TsckApp {
                 let view = builder
                     .with_url(url)
                     .with_new_window_req_handler(move |url, _| {
-                        _ = channel_bus.send((
-                            UserEvent::NavigateWebview(url),
-                            None,
-                            Some(window_id),
-                        ));
+                        _ = channel_bus.send((UE::NavigateWebview(url), None, Some(window_id)));
                         wry::NewWindowResponse::Deny
                     })
                     .with_initialization_script(custom_script)
@@ -457,9 +711,14 @@ impl ApplicationHandler for TsckApp {
             WindowEvent::CloseRequested => {
                 self.windows.remove(&window_id);
             }
+            WindowEvent::Focused(focus) => {
+                self.channel_bus
+                    .send((UE::WindowFocusChange(focus), None, None));
+            }
             WindowEvent::SurfaceResized(size) => {
                 window.resize(size);
             }
+
             _ => {}
         }
     }

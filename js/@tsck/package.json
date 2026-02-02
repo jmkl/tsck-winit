@@ -1,0 +1,39 @@
+{
+	"name": "@tsck/lib",
+	"version": "0.1.0",
+	"description": "types for front shit",
+	"main": "dist/index.cjs",
+	"module": "dist/index.js",
+	"types": "dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js",
+			"require": "./dist/index.cjs"
+		}
+	},
+	"files": [
+		"dist/**/*.d.ts",
+		"dist/**/*.js",
+		"dist/**/*.cjs",
+		"dist/**/*.map"
+	],
+	"scripts": {
+		"build": "bun run build:esm && bun run build:cjs && bun run build:types",
+		"build:esm": "bun build src/index.ts --outfile dist/index.js --format esm --target browser --minify --sourcemap=inline",
+		"build:cjs": "bun build src/index.ts --outfile dist/index.cjs --format cjs --target node --minify --sourcemap=inline",
+		"build:types": "tsc --emitDeclarationOnly --outDir dist",
+		"prepublishOnly": "bun run build"
+	},
+	"keywords": [
+		"tsockee",
+		"ipc",
+		"webview",
+		"rust"
+	],
+	"author": "jmkl",
+	"license": "MIT",
+	"devDependencies": {
+		"typescript": "^5.0.0"
+	}
+}
