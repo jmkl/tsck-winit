@@ -87,6 +87,7 @@ ts_struct! {
 #[serde(tag = "type", content = "value")]
 #[ts(export,export_to=TS_PATH)]
 pub enum UserEvent {
+    GetReadableHotkee,
     WindowFocusChange(bool),
     ReloadConfig,
     Minimize,
@@ -222,4 +223,17 @@ pub struct WsMessagePayload {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub channel: Option<String>,
+}
+
+ts_struct! {
+  path = TS_PATH,
+  (Default),
+  pub struct ReadableHotkee{
+    pub meta:bool,
+    pub alt:bool,
+    pub shift:bool,
+    pub ctrl:bool,
+    pub key:String,
+    pub func:String
+  }
 }

@@ -1,7 +1,10 @@
 {
-	"languages": {
-		"Rust": {
-			"language_servers": ["rust-analyzer"],
-		},
-	},
+  "languages": {
+    "Rust": {
+      "language_servers": ["rust-analyzer"],
+      "completions": {
+        "lsp": true,
+      },
+    },
+  },
 }

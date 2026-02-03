@@ -60,6 +60,7 @@ export const HERO_PAGE = {
   COMMANDLOG: 6,
   CONFIG: 7,
   SETTINGUI: 8,
+  HOTKEE: 9,
 };
 export const SHARED_HERO_PAGE = {
   THUMBNAIL: 0,
