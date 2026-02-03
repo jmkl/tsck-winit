@@ -5,6 +5,7 @@
   import tits from "$lib/assets/flou.webm";
 
   import RawFilter from "./RawFilter/+page.svelte";
+  import WhichHotkee from "./WhichHotkee/+page.svelte";
   import CommandLog from "../CommandLog/+page.svelte";
   import Textures from "./Textures/+page.svelte";
   import YoutubeThumbnail from "./YoutubeThumbnail/+page.svelte";
@@ -76,6 +77,8 @@
     <SettingUI />
   {:else if ctx.globalActivePage === HERO_PAGE.COMMANDLOG}
     <CommandLog splashScreen={false} onConnected={() => {}} />
+  {:else if ctx.globalActivePage === HERO_PAGE.HOTKEE}
+    <WhichHotkee />
   {/if}
   {#if ctx.showSnippet && [HERO_PAGE.THUMBNAIL, HERO_PAGE.SMARTOBJECT].includes(ctx.globalActivePage) && splitSnippet.length > 0}
     <div

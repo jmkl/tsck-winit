@@ -1,18 +1,21 @@
 use std::{str::FromStr, sync::Arc, time::Instant};
 
-use crate::{ChannelBus, app_config::AppConfigHandler, dp, event::UserEvent, log_debug, log_error};
+use crate::{
+    ChannelBus,
+    app_config::AppConfigHandler,
+    event::{ReadableHotkee, UserEvent},
+    log_error,
+};
 use kee::{Event, Kee, SafeHWND, TKeePair, WindowInfo, list_windows};
 use parking_lot::Mutex;
-use tsck_utils::{Expr, generate_func_enums, parse_func};
+use tsck_utils::{Expr, Func, generate_func_enums, parse_func};
 
 generate_func_enums!(
     KeeEntry => (
         App => (
-            Tsockee,
             LaunchPlugin,
-            Photoshop,
+            AppToFront,
             CycleApps,
-            Broadcast,
             ReloadConfig,
             CyclePages,
             Page,
@@ -32,6 +35,21 @@ generate_func_enums!(
         )
     )
 );
+
+/// @variant
+/// Expr::String
+/// Expr::Ident
+/// Expr::Number
+/// Expr::Call
+/// Expr::Tuple
+macro_rules! slice_args {
+    ($cmd:expr,$variant:path, |$param:ident| $body:block) => {
+        match $cmd.args.as_slice() {
+            [$variant($param)] => $body,
+            _ => {}
+        }
+    };
+}
 
 enum SearchMode {
     Title,
@@ -124,8 +142,8 @@ impl WindowOps {
         let start = Instant::now();
 
         if let Some(window) = kee::list_windows().iter().find(|k| match search_mode {
-            SearchMode::Title => k.title().to_uppercase() == payload,
-            SearchMode::Name => k.name().to_uppercase() == payload,
+            SearchMode::Title => k.title().to_uppercase() == payload.to_uppercase(),
+            SearchMode::Name => k.name().to_uppercase() == payload.to_uppercase(),
         }) {
             _ = window.bring_to_front();
         }
@@ -152,6 +170,27 @@ impl WindowOps {
             }
         }
     }
+}
+pub fn kee_to_readable_hotkee(input: &str, func: &str) -> ReadableHotkee {
+    let parts: Vec<&str> = input.split('-').collect();
+    let mut kee = ReadableHotkee::default();
+    let key_part = if parts.len() == 1 {
+        parts[0]
+    } else {
+        for part in &parts[..parts.len() - 1] {
+            match part.as_bytes() {
+                b"C" => kee.ctrl = true,
+                b"S" => kee.shift = true,
+                b"A" => kee.alt = true,
+                b"M" | b"W" => kee.meta = true,
+                _ => {}
+            }
+        }
+        parts[parts.len() - 1]
+    };
+    kee.key = key_part.to_string();
+    kee.func = func.to_string();
+    kee
 }
 
 fn _spawn_hotkee(bus: Arc<ChannelBus>) -> anyhow::Result<()> {
@@ -182,11 +221,9 @@ fn _spawn_hotkee(bus: Arc<ChannelBus>) -> anyhow::Result<()> {
                                                 AppConfigHandler::new().get_tkee_pair(),
                                             );
                                         }
-                                        AppFunc::Tsockee => {
-                                            //dothis
-                                        }
-                                        AppFunc::LaunchPlugin => match cmd.args.as_slice() {
-                                            [Expr::Ident(win_title)] => {
+
+                                        AppFunc::LaunchPlugin => {
+                                            slice_args!(cmd, Expr::Ident, |win_title| {
                                                 _ = channel_bus.send((
                                                     UserEvent::LaunchPlugin(
                                                         win_title.to_lowercase(),
@@ -194,24 +231,19 @@ fn _spawn_hotkee(bus: Arc<ChannelBus>) -> anyhow::Result<()> {
                                                     None,
                                                     None,
                                                 ));
-                                            }
-                                            _ => {}
-                                        },
-                                        AppFunc::Broadcast => match cmd.args.as_slice() {
-                                            [Expr::Ident(message)] => {
-                                                channel_bus.ws_send_to_all(message.to_string());
-                                            }
-                                            [Expr::Number(_)] => {}
-                                            _ => {}
-                                        },
-                                        AppFunc::Photoshop => {
-                                            WindowOps::to_front(SearchMode::Name, cmd.func);
+                                            });
+                                        }
+
+                                        AppFunc::AppToFront => {
+                                            slice_args!(cmd, Expr::Ident, |what| {
+                                                WindowOps::to_front(SearchMode::Name, what);
+                                            });
                                         }
                                         AppFunc::CycleApps => {
                                             apps.lock().next_app();
                                         }
-                                        AppFunc::CyclePages => match cmd.args.as_slice() {
-                                            [Expr::Ident(direction)] => {
+                                        AppFunc::CyclePages => {
+                                            slice_args!(cmd, Expr::Ident, |direction| {
                                                 let direction = match *direction {
                                                     "PREV" => -1,
                                                     "NEXT" => 1,
@@ -222,33 +254,27 @@ fn _spawn_hotkee(bus: Arc<ChannelBus>) -> anyhow::Result<()> {
                                                     None,
                                                     None,
                                                 ));
-                                            }
-                                            _ => {}
-                                        },
-                                        AppFunc::Page => match cmd.args.as_slice() {
-                                            [Expr::Number(page)] => {
+                                            })
+                                        }
+
+                                        AppFunc::Page => slice_args!(cmd, Expr::Number, |page| {
+                                            _ = channel_bus.send((
+                                                UserEvent::FocusPage(*page as i32),
+                                                None,
+                                                None,
+                                            ));
+                                        }),
+                                        AppFunc::Script => {
+                                            slice_args!(cmd, Expr::String, |script| {
                                                 _ = channel_bus.send((
-                                                    UserEvent::FocusPage(*page as i32),
+                                                    UserEvent::ExecuteScript(script.to_string()),
                                                     None,
                                                     None,
                                                 ));
-                                            }
-                                            _ => {}
-                                        },
-                                        AppFunc::Script => match cmd.args.as_slice() {
-                                            [Expr::Ident(script)] => {
-                                                let mut script = script.replace("-", " ");
-                                                script.push_str(".js");
-                                                _ = channel_bus.send((
-                                                    UserEvent::ExecuteScript(script),
-                                                    None,
-                                                    None,
-                                                ));
-                                            }
-                                            _ => {}
-                                        },
-                                        AppFunc::FuncCall => match cmd.args.as_slice() {
-                                            [Expr::Ident(func)] => {
+                                            })
+                                        }
+                                        AppFunc::FuncCall => {
+                                            slice_args!(cmd, Expr::Ident, |func| {
                                                 _ = channel_bus.send((
                                                     UserEvent::FunctionCall {
                                                         func: func.to_string(),
@@ -257,9 +283,8 @@ fn _spawn_hotkee(bus: Arc<ChannelBus>) -> anyhow::Result<()> {
                                                     None,
                                                     None,
                                                 ));
-                                            }
-                                            _ => {}
-                                        },
+                                            })
+                                        }
                                         AppFunc::ToggleShadow => {
                                             _ = channel_bus.send((
                                                 UserEvent::ToggleShadow,

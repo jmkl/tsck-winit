@@ -1,6 +1,8 @@
 use crate::event::{
-    EventPayload, UserEvent, WinLevel, WindowInfoExt, WsMessagePayload, WsPayloadContent,
+    EventPayload, ReadableHotkee, UserEvent, WinLevel, WindowInfoExt, WsMessagePayload,
+    WsPayloadContent,
 };
+use crate::hotkee::kee_to_readable_hotkee;
 use crate::ipc::{IpcHelper, IpcRequest, IpcResponse};
 use crate::photoshop::customscripts::CustomScripts;
 use crate::protocol::setup_custom_protocol;
@@ -223,6 +225,21 @@ impl TsckApp {
                             *guard = level;
                         }
                         ws.window.set_window_level(window_level);
+                    });
+                }
+                UE::GetReadableHotkee => {
+                    get_window!(self, window_id, |ws| {
+                        request.map(|req| -> anyhow::Result<()> {
+                            let kees: Vec<ReadableHotkee> = self
+                                .channel_bus
+                                .get_app_config()
+                                .kees
+                                .iter()
+                                .map(|(k, f)| kee_to_readable_hotkee(k, f))
+                                .collect();
+                            response_success!(ws.webview, req, kees);
+                            Ok(())
+                        });
                     });
                 }
 
