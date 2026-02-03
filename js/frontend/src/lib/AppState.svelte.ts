@@ -76,7 +76,6 @@ export type PageProps = {
   totalPages: number;
   imageCount: number;
 };
-const WINLEVELS = ["Normal", "Top"] as const;
 export type TextLayerInfo = { content: string; layer_id: number; id: number };
 class Apps {
   WindowLevel: WinLevel = $state("Normal");
@@ -273,8 +272,8 @@ class Apps {
               this.toggleShadowLayer();
               break;
             case "ToggleWindowLevel":
-              const i = WINLEVELS.indexOf(this.WindowLevel);
-              this.WindowLevel = WINLEVELS[(i + 1) % WINLEVELS.length];
+              this.WindowLevel =
+                this.WindowLevel === "Normal" ? "Top" : "Normal";
               invokePayload<UserEvent>({
                 type: "SetWindowLevel",
                 value: [this.WindowLevel, "main"],
@@ -367,10 +366,6 @@ class Apps {
                 //show
                 this.CompactMode = false;
                 this.transformMainWindow();
-                invokePayload<UserEvent>({
-                  type: "SetWindowLevel",
-                  value: "Top",
-                });
               }
               break;
           }
