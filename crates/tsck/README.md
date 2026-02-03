@@ -2,7 +2,11 @@ TSCK
 - [x] Need to implement customprotocol and rust-embed
 - [x] Priority
 - [x] Refactoring Hotkee parsing and functionalisation
-
+- [ ] refactoring more
+- [ ] add to m
+- [ ] add dsome now
+- [ ]  
+- [ ] add branch
 
 # TODO HOTKEY FUNC
 
