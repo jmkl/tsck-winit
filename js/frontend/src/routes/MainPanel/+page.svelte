@@ -5,8 +5,10 @@
   import tits from "$lib/assets/flou.webm";
 
   import RawFilter from "./RawFilter/+page.svelte";
+  import CommandLog from "../CommandLog/+page.svelte";
   import Textures from "./Textures/+page.svelte";
   import YoutubeThumbnail from "./YoutubeThumbnail/+page.svelte";
+  import SettingUI from "./SettingUI/+page.svelte";
   import {
     GetAppsState,
     HERO_PAGE,
@@ -14,10 +16,9 @@
   } from "$lib/AppState.svelte";
   import { onDestroy, onMount } from "svelte";
   import { invokePayload, listen, type UnlistenFn } from "$lib";
-  import type { EventPayload, UserEvent } from "@tsck/lib";
+  import type { UserEvent } from "@tsck/lib";
   import { bubblePop, slideMe } from "$lib/animation";
   const ctx = GetAppsState();
-  let listenFn: UnlistenFn | undefined = $state();
   let snippet: string = $derived.by(() => {
     const texts = ctx.TodoTemplateLines.map((t) => t.text)
       .join(" ")
@@ -38,23 +39,8 @@
 
   onMount(() => {
     invokePayload<UserEvent>({ type: "SetWindowLevel", value: "Top" });
-    listenFn = listen<EventPayload, UserEvent>(
-      "tsck::event|EVENTPAYLOAD::FRONTEND",
-      (e) => {
-        if (e == undefined) return;
-        switch (e.type) {
-          case "CyclePages":
-            ctx.IsWindowFocus = true;
-            const len = Object.keys(SHARED_HERO_PAGE).length;
-            ctx.globalActivePage = (ctx.globalActivePage + e.value + len) % len;
-            break;
-        }
-      },
-    );
   });
-  onDestroy(() => {
-    if (listenFn) listenFn();
-  });
+  onDestroy(() => {});
 </script>
 
 {#if ctx.LoadingPanel}
@@ -86,6 +72,10 @@
     <RawFilter />
   {:else if ctx.globalActivePage === HERO_PAGE.YOUTUBETHUMBNAIL}
     <YoutubeThumbnail />
+  {:else if ctx.globalActivePage === HERO_PAGE.SETTINGUI}
+    <SettingUI />
+  {:else if ctx.globalActivePage === HERO_PAGE.COMMANDLOG}
+    <CommandLog splashScreen={false} onConnected={() => {}} />
   {/if}
   {#if ctx.showSnippet && [HERO_PAGE.THUMBNAIL, HERO_PAGE.SMARTOBJECT].includes(ctx.globalActivePage) && splitSnippet.length > 0}
     <div

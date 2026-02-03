@@ -7,6 +7,7 @@ mod io;
 mod ipc;
 mod macros;
 mod photoshop;
+mod protocol;
 mod store;
 mod utils;
 use crate::app::TsckApp;
@@ -21,6 +22,7 @@ use crate::store::{DbStore, PageChunk, Texture};
 use crate::utils::winview_util::webview_bounds;
 use flume::{Receiver, Sender, unbounded};
 use parking_lot::Mutex;
+use rust_embed_for_web::RustEmbed;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::Path;
@@ -31,6 +33,9 @@ use wry::WebView;
 use wry::dpi::PhysicalSize;
 const DOTFILE_DIR: &'static str = "tsck-winit";
 
+#[derive(RustEmbed)]
+#[folder = "../../js/frontend/build"]
+pub struct EmbeddedAssets;
 struct WindowState {
     title: String,
     window: Arc<dyn Window>,
