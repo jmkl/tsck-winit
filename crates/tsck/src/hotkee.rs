@@ -134,12 +134,19 @@ impl WindowOps {
     fn move_window(to: &str, hwnd: &SafeHWND) {
         let inc = AppConfigHandler::new().move_increment();
         if let Some(w) = list_windows().iter().find(|w| &w.hwnd == hwnd) {
+            let (wx, wy) = (w.position().x, w.position().y);
             match to {
                 "LEFT" => {
-                    _ = w.move_to(w.position().x - inc, w.position().y);
+                    _ = w.move_to(wx - inc, wy);
                 }
                 "RIGHT" => {
-                    _ = w.move_to(w.position().x + inc, w.position().y);
+                    _ = w.move_to(wx + inc, wy);
+                }
+                "UP" => {
+                    _ = w.move_to(wx, wy - inc);
+                }
+                "DOWN" => {
+                    _ = w.move_to(wx, wy + inc);
                 }
                 _ => {}
             }
