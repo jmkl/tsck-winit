@@ -1,3 +1,4 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod app;
 mod app_config;
 mod cmd;
@@ -302,10 +303,8 @@ fn print_help() {
 ▄▄▄▄▄▄ ▄▄▄▄  ▄▄▄▄ ▄▄ ▄▄
   ██  ███▄▄ ██▀▀▀ ██▄█▀
   ██  ▄▄██▀ ▀████ ██ ██
-
     tsck.exe                : run gui
     tsck.exe delete         : delete Webview2 folder
-
 "#
     );
 }
