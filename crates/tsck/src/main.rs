@@ -25,7 +25,7 @@ use parking_lot::Mutex;
 use rust_embed_for_web::RustEmbed;
 use serde::Serialize;
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use winit::event_loop::{EventLoop, EventLoopProxy};
 use winit::window::Window;
@@ -296,7 +296,44 @@ impl ChannelBus {
     }
 }
 
+fn print_help() {
+    println!(
+        r#"
+▄▄▄▄▄▄ ▄▄▄▄  ▄▄▄▄ ▄▄ ▄▄
+  ██  ███▄▄ ██▀▀▀ ██▄█▀
+  ██  ▄▄██▀ ▀████ ██ ██
+
+    tsck.exe                : run gui
+    tsck.exe delete         : delete Webview2 folder
+
+"#
+    );
+}
+
+fn delete_cache() -> anyhow::Result<bool> {
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            let dir = PathBuf::from(parent).join("tsck.exe.WebView2");
+            _ = std::fs::remove_dir_all(dir);
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 fn main() -> anyhow::Result<()> {
+    let args: Vec<_> = std::env::args().collect();
+    if args.len() > 1 {
+        match args[1].as_str() {
+            "delete" => {
+                let result = delete_cache();
+                println!("Deleted status {result:?}");
+            }
+            _ => print_help(),
+        }
+        return Ok(());
+    }
+
     let event_loop = EventLoop::new()?;
     event_loop.listen_device_events(winit::event_loop::DeviceEvents::Never);
     let bus = Arc::new(ChannelBus::new(event_loop.create_proxy())?.bind_websocket());

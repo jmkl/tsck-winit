@@ -2,8 +2,8 @@ TSCK
 - [x] Need to implement customprotocol and rust-embed
 - [x] Priority
 - [x] Refactoring Hotkee parsing and functionalisation
+- [x] add icon to exe
 - [ ] Working at workspace
-- [ ] add icon to exe
 - [ ] optimize frontend
 - [ ] add hotkey to switch between page in browser
 
