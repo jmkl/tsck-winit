@@ -15,6 +15,7 @@ import type {
   RawFilterTemplate,
   UnListen,
   UserEvent,
+  WindowSize,
 } from "@tsck/lib";
 import { invokePayload, invokePayloadWithCallback, listen } from "$lib";
 import { ComfyUIAPI } from "./comfyui/comfyuiapi";
@@ -37,6 +38,10 @@ export function GetAppsState() {
   return getContext<Apps>(MAINCTX);
 }
 
+const WINDOW_SIZE: WindowSize[] = [
+  { width: 350, height: 25 },
+  { width: 350, height: 560 },
+];
 const LOCAL_STORAGE_ITEMS = "local-storage-items";
 export type LocalStorageItems = {
   selected_upscale_model: number;
@@ -54,6 +59,7 @@ export const HERO_PAGE = {
   YOUTUBETHUMBNAIL: 5,
   COMMANDLOG: 6,
   CONFIG: 7,
+  SETTINGUI: 8,
 };
 export const SHARED_HERO_PAGE = {
   THUMBNAIL: 0,
@@ -110,6 +116,7 @@ class Apps {
   frontendeventListener: UnListen = $state();
   psEventListener: UnListen = $state();
   hotkeyListener: UnListen = $state();
+  transformWindowTimeout: NodeJS.Timeout | undefined = $state();
   constructor() {
     this.loadLocalStorateItems();
     this.initConfig();
@@ -123,6 +130,8 @@ class Apps {
       if (this.frontendeventListener) this.frontendeventListener();
       if (this.hotkeyListener) this.hotkeyListener();
       if (this.psEventListener) this.psEventListener();
+      if (this.transformWindowTimeout)
+        clearTimeout(this.transformWindowTimeout);
     });
   }
 
@@ -238,14 +247,7 @@ class Apps {
       (event) => {
         if (event) {
           switch (event.type) {
-            case "ToggleShadow":
-              this.toggleShadowLayer();
-              break;
-            case "FocusPage":
-              this.globalActivePage = event.value - 1;
-              break;
-            case "ToggleCompactMode":
-              this.CompactMode = !this.CompactMode;
+            default:
               break;
           }
         }
@@ -255,12 +257,24 @@ class Apps {
   spawnPSEventLister() {
     return listen("tsockee:websocket|event", (event) => {});
   }
+
   spawnFrontendListener() {
     return listen<EventPayload, UserEvent>(
       "tsck::event|EVENTPAYLOAD::FRONTEND",
       (event) => {
         if (event) {
           switch (event.type) {
+            case "ToggleShadow":
+              console.log("ToggleShadow");
+              this.toggleShadowLayer();
+              break;
+            case "FocusPage":
+              this.globalActivePage = event.value - 1;
+              break;
+            case "ToggleCompactMode":
+              this.CompactMode = !this.CompactMode;
+              this.transformMainWindow();
+              break;
             case "LoadingState":
               this.showLoadingPanel(event.value.loading);
               break;
@@ -314,6 +328,12 @@ class Apps {
               this.IsWindowFocus = true;
 
               break;
+            case "CyclePages":
+              this.IsWindowFocus = true;
+              const len = Object.keys(SHARED_HERO_PAGE).length;
+              this.globalActivePage =
+                (this.globalActivePage + event.value + len) % len;
+              break;
             case "WhatsappUpdate":
               switch (event.value.type) {
                 case "connect":
@@ -324,9 +344,49 @@ class Apps {
                   break;
               }
               break;
+            case "ActivateWorkSpace":
+              break;
+            case "WindowFocusChange":
+              this.IsWindowFocus = event.value;
+              if (!event.value) {
+                //hide
+                this.prepareTransformMainWindow();
+              } else {
+                //show
+                this.CompactMode = false;
+                this.transformMainWindow();
+                invokePayload<UserEvent>({
+                  type: "SetWindowLevel",
+                  value: "Top",
+                });
+              }
+              break;
           }
         }
       },
     );
+  }
+
+  transformMainWindow() {
+    invokePayload<UserEvent>({
+      type: "SetWindowSize",
+      value: this.CompactMode ? WINDOW_SIZE[0] : WINDOW_SIZE[1],
+    });
+    // invokePayload<UserEvent>({
+    //   type: "TransformWindow",
+    //   value: {
+    //     label: "main",
+    //     easing: "EaseInQuad",
+    //     toSize: SIZE[compactMode ? 0 : 1],
+    //     duration: 200,
+    //   },
+    // });
+  }
+  prepareTransformMainWindow() {
+    if (this.transformWindowTimeout) clearTimeout(this.transformWindowTimeout);
+    this.transformWindowTimeout = setTimeout(() => {
+      this.CompactMode = true;
+      this.transformMainWindow();
+    }, 150_000);
   }
 }

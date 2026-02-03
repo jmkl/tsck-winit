@@ -1,3 +1,4 @@
+#![allow(unused)]
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -87,16 +88,13 @@ mod dir_examples {
 
     #[test]
     fn example_efficient_patterns() -> Result<()> {
-        // ✅ BEST: Use &Path directly (no allocations)
         let parent = Dir::store_parent()?;
         let file = parent.join("myapp").join("data.db");
 
-        // ✅ GOOD: Get PathBuf once, use as &Path many times
         let app_path = Dir::store_path("myapp")?;
         let settings = app_path.join("settings.json");
         let cache = app_path.join("cache.dat");
 
-        // ❌ AVOID: Converting to String unnecessarily
         // let _path_str = Dir::config_path_str("myapp")?;  // Only if you need String!
 
         Ok(())
@@ -105,7 +103,6 @@ mod dir_examples {
     #[test]
     fn example_with_lazy_static() {
         use std::sync::LazyLock;
-
         // Cache app path as static if used frequently
         static APP_PATH: LazyLock<PathBuf> =
             LazyLock::new(|| Dir::store_path("myapp").expect("Failed to get app path"));

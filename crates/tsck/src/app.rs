@@ -3,6 +3,7 @@ use crate::event::{
 };
 use crate::ipc::{IpcHelper, IpcRequest, IpcResponse};
 use crate::photoshop::customscripts::CustomScripts;
+use crate::protocol::setup_custom_protocol;
 use crate::store::config::{ConfigParser, PluginConf, WindowPosition, WindowSize, WindowSrc};
 use crate::utils::animation::map_value;
 use crate::utils::download::dl_image;
@@ -154,10 +155,17 @@ impl TsckApp {
                     }
                 }
                 UE::CloseWindow => {
-                    if let Some(window_id) = window_id {
-                        self.windows.remove(&window_id);
-                        if self.windows.is_empty() {
+                    get_window!(self, window_id, |ws| {
+                        if &ws.title == "main" {
                             event_loop.exit();
+                        }
+                    });
+                    {
+                        if let Some(window_id) = window_id {
+                            self.windows.remove(&window_id);
+                            if self.windows.is_empty() {
+                                event_loop.exit();
+                            }
                         }
                     }
                 }
@@ -584,21 +592,25 @@ impl TsckApp {
             .to_logical::<u32>(window.scale_factor());
         let toolbar_panel = &conf.toolbar_panel;
         let scale_factor = conf.webview_zoom_factor;
-        let builder = WebViewBuilder::new()
-            .with_url("http://localhost:5566")
-            .with_bounds(Rect {
-                position: Position::Logical(LogicalPosition::new(0.0, 0.0)),
-                size: Size::Physical(size.to_physical(scale_factor)),
-            })
-            .with_initialization_script(include_str!("../scripts/init.js"))
-            .with_ipc_handler(self.ipc_handler(window_id));
+        let mut builder = WebViewBuilder::new().with_bounds(Rect {
+            position: Position::Logical(LogicalPosition::new(0.0, 0.0)),
+            size: Size::Physical(size.to_physical(scale_factor)),
+        });
 
         let webview = match &conf.window_src {
             WindowSrc::Local(local_path) => {
-                let view = builder
-                    .with_url(format!("{}{}", self.dev_url, local_path))
+                builder = builder
                     .with_transparent(conf.transparent)
-                    .build(&window)?;
+                    .with_initialization_script(include_str!("../scripts/init.js"))
+                    .with_ipc_handler(self.ipc_handler(window_id));
+                let view = {
+                    match cfg!(debug_assertions) {
+                        true => builder
+                            .with_url(format!("{}{}", self.dev_url, local_path))
+                            .build(&window)?,
+                        false => setup_custom_protocol(builder, local_path).build(&window)?,
+                    }
+                };
                 (view, None)
             }
             WindowSrc::Web(url, page) => {
@@ -662,7 +674,7 @@ impl TsckApp {
                 .with_title(&title)
                 .with_transparent(window_conf.transparent)
                 .with_decorations(window_conf.decorations)
-                .with_min_surface_size(window_conf.window_size.to_size())
+                .with_surface_size(window_conf.window_size.to_size())
                 .with_position(window_conf.window_position.to_position())
                 .with_platform_attributes(Box::new(window_attr))
                 .with_window_level(window_level);
@@ -672,9 +684,9 @@ impl TsckApp {
             _ = window.request_surface_size(window_conf.window_size.to_size());
             let winconf = Arc::new(window_conf.clone());
             let window_id = window.id();
-            let (webview, panel) = self.create_webview(&window, window_id, plugin_conf)?;
+            let (webview, panel) = self.create_webview(&window, window_id.clone(), plugin_conf)?;
             let window_state = WindowState::new(self, title, window, webview, panel, winconf)?;
-            self.windows.insert(window_state.window.id(), window_state);
+            self.windows.insert(window_id, window_state);
         }
 
         Ok(())

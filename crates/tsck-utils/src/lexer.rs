@@ -1,6 +1,7 @@
 #[derive(Debug, PartialEq)]
 enum Token<'a> {
     Ident(&'a str),
+    String(&'a str),
     Number(i64),
     DoubleColon,
     LParen,
@@ -16,6 +17,7 @@ struct Lexer<'a> {
 #[derive(Debug)]
 pub enum Expr<'a> {
     Ident(&'a str),
+    String(&'a str),
     Number(i64),
     Tuple(Vec<Expr<'a>>),
     Call { name: &'a str, args: Vec<Expr<'a>> },
@@ -76,15 +78,26 @@ impl<'a> Lexer<'a> {
                 Some(Token::Number(num))
             }
 
-            c if c.is_alphabetic() || c == '_' || c == '-' => {
+            c if c.is_alphabetic() || c == '_' => {
+                while matches!(
+                self.peek(),
+                Some(c) if c.is_alphanumeric() || c == '_' || c=='-'
+                ) {
+                    self.next_char();
+                }
+                Some(Token::Ident(&self.input[start..self.pos]))
+            }
+
+            c if c == '\'' => {
                 while let Some(c) = self.peek() {
-                    if c.is_alphanumeric() || c == '_' || c == '-' {
+                    if c != '\'' {
                         self.next_char();
                     } else {
                         break;
                     }
                 }
-                Some(Token::Ident(&self.input[start..self.pos]))
+                self.next_char()?;
+                Some(Token::String(&self.input[start + 1..self.pos - 1]))
             }
 
             _ => None,
@@ -102,6 +115,7 @@ pub struct Func<'a> {
 fn parse_value<'a>(lexer: &mut Lexer<'a>) -> Option<Expr<'a>> {
     match lexer.next_token()? {
         Token::Number(n) => Some(Expr::Number(n)),
+        Token::String(n) => Some(Expr::String(n)),
 
         Token::Ident(name) => {
             if let Some(Token::LParen) = lexer.peek_token() {
@@ -205,7 +219,7 @@ mod test_lexer {
             "window::TRANSFORM((300,300),(0,0))",
             "app::TSOCKEE(TODO)",
             "app::PHOTOSHOP",
-            "app::TSOCKEE(TSOOGLE)",
+            "app::TSOCKEE(TSOOGLE SOMETHING)",
             "app::CYCLE",
         ];
 
@@ -213,6 +227,17 @@ mod test_lexer {
             if let Some(cmd) = parse_func(s) {
                 println!("{:#?}", cmd);
             }
+        }
+    }
+    #[test]
+    fn lexer_adv() {
+        let input = [
+            "app::SCRIPT('main')",
+            "app::SCRIPT('some/main.js')",
+            "app::SCRIPT('path/to/another jsfile.js',(10,20,(10,10)))",
+        ];
+        for s in input {
+            println!("{:#?}", parse_func(s))
         }
     }
 }
