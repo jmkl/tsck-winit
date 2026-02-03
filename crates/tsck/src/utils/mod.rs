@@ -1,6 +1,7 @@
 pub(crate) mod animation;
 pub(crate) mod app_tokenizer;
 pub mod download;
+pub mod img;
 pub mod logger;
 pub(crate) mod winview_util;
 pub mod youtubeapi;

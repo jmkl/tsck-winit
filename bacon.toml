@@ -1,5 +1,7 @@
 #:schema https://dystroy.org/bacon/.bacon.schema.json
-
+[sound]
+enabled = true
+base_volume = "100%"
 default_job = "tsck"
 env.CARGO_TERM_COLOR = "always"
 
@@ -15,3 +17,29 @@ need_stdout = true
 command = ["bun", "run", "--cwd=js/frontend", "dev"]
 allow_warnings = true
 need_stdout = true
+
+
+[jobs.test]
+command = ["cargo", "test", "-p", "tsck","--","--nocapture"]
+allow_warnings = true
+need_stdout = true
+on_success = "job:buildlib"
+
+
+[jobs.buildlib]
+command = ["bun", "run", "--cwd=js/@tsck", "build"]
+allow_warnings = true
+need_stdout = true
+on_success = "job:buildfrontend"
+
+[jobs.buildfrontend]
+command = ["bun", "run", "--cwd=js/frontend", "build"]
+allow_warnings = true
+need_stdout = true
+on_success = "play-sound(name=90s-game-ui-6,volume=50)"
+
+[jobs.buildtsck]
+command = ["cargo", "build", "-p", "tsck", "--release"]
+allow_warnings = true
+need_stdout = true
+on_success = "play-sound(name=90s-game-ui-6,volume=50)"

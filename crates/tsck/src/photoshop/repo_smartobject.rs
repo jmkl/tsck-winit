@@ -210,6 +210,6 @@ mod test_repo {
     #[test]
     fn test_repo_smartobject() {
         let so = SmartObjects::new();
-        println!("{:#?}", so.files);
+        // println!("{:#?}", so.files);
     }
 }
