@@ -4,6 +4,7 @@ TSCK
 - [x] Refactoring Hotkee parsing and functionalisation
 - [ ] refactoring more
 - [ ] add to m
+- [ ] add branch
 
 # TODO HOTKEY FUNC
 
