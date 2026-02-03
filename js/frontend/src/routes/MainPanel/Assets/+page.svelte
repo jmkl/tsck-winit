@@ -11,13 +11,8 @@
   import { createNavigation } from "$lib/components/ImageGrid/setupNavigation.svelte";
   import { invokePayload, invokePayloadWithCallback, listen } from "$lib";
   import ImageGrid from "$lib/components/ImageGrid/ImageGrid.svelte";
-  import CurrentPage from "$lib/components/ImageGrid/CurrentPage.svelte";
 
   const ctx = GetAppsState();
-
-  // ============================================
-  // STATE
-  // ============================================
   const DEBOUNCE_MS = 100;
   let debounceTimeOut: NodeJS.Timeout | undefined = undefined;
   let searchQuery = $state("");

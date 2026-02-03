@@ -1,9 +1,9 @@
 pub mod cmd_manager;
 use crate::app_config::AppConfigHandler;
 use crate::event::{ChannelEvent, EventPayload, UserEvent};
-use crate::ipc::{IpcHelper, IpcResponse};
-use crate::{ChannelBus, app, dp, log_debug, log_error, ts_struct};
+use crate::ipc::IpcHelper;
 use crate::{cmd::cmd_manager::ProcessManager, event::TS_PATH};
+use crate::{log_debug, log_error, ts_struct};
 use flume::Sender;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -13,7 +13,6 @@ use std::thread::{self, sleep};
 use std::time::Duration;
 use ts_rs::TS;
 use winit::event_loop::EventLoopProxy;
-pub const COMMAND_CONFIG_KEY: &str = "command_config";
 
 ts_struct! {path=TS_PATH,
     pub struct AppCommand {
@@ -23,8 +22,7 @@ ts_struct! {path=TS_PATH,
         pub executable: Option<String>,
         pub work_dir: Option<String>,
         pub args: Vec<String>,
-        #[serde(default)]
-        pub logs: Vec<String>
+
     }
 }
 
@@ -86,10 +84,6 @@ pub struct CmdrHelper {
     process_manager: Arc<ProcessManager>,
     app_config: Arc<Mutex<AppConfigHandler>>,
     proxy: Arc<EventLoopProxy>,
-}
-
-macro_rules! cmd_sender {
-    () => {};
 }
 
 impl CmdrHelper {

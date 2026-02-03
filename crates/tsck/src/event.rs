@@ -103,7 +103,7 @@ pub enum UserEvent {
     NavigateWebview(String),
     ZoomWebview(f32),
     UpdateToolbarPanel(ToolbarPanel),
-    SetWindowLevel(WinLevel),
+    SetWindowLevel(WinLevel, String),
     SetWindowDecorated(bool),
     SetWindowShadow(bool),
     SetWindowSize(WindowSize),

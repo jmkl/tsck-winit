@@ -9,6 +9,7 @@ use crate::protocol::setup_custom_protocol;
 use crate::store::config::{ConfigParser, PluginConf, WindowPosition, WindowSize, WindowSrc};
 use crate::utils::animation::map_value;
 use crate::utils::download::dl_image;
+use crate::utils::img::load_icon;
 use crate::utils::url_encode;
 use crate::utils::winview_util::webview_bounds;
 use crate::utils::youtubeapi::YoutubeApi;
@@ -213,8 +214,8 @@ impl TsckApp {
                     });
                 }
 
-                UE::SetWindowLevel(level) => {
-                    get_window!(self, window_id, |ws| {
+                UE::SetWindowLevel(level, label) => {
+                    get_window_by_label!(self, label, |ws| {
                         let window_level = match level {
                             WinLevel::Top => winit::window::WindowLevel::AlwaysOnTop,
                             WinLevel::Normal => winit::window::WindowLevel::Normal,
@@ -689,6 +690,7 @@ impl TsckApp {
                 .with_no_redirection_bitmap(true);
             let attr = WindowAttributes::default()
                 .with_title(&title)
+                .with_window_icon(load_icon(include_bytes!("../ic.png").to_vec()))
                 .with_transparent(window_conf.transparent)
                 .with_decorations(window_conf.decorations)
                 .with_surface_size(window_conf.window_size.to_size())

@@ -6,6 +6,8 @@
   import IconButton from "$lib/components/IconButton.svelte";
   import Setting from "$lib/components/Icon/Setting.svelte";
   import Command from "$lib/components/Icon/Command.svelte";
+  import EyeOpen from "$lib/components/Icon/EyeOpen.svelte";
+  import EyeClose from "$lib/components/Icon/EyeClose.svelte";
 
   SetAppsState();
   const ctx = GetAppsState();
@@ -42,6 +44,10 @@
       {/if}
     </div>
     <div data-tsck-drag-region class="panel flex-1"></div>
+    <IconButton
+      class="btn-ghost! btn-error"
+      icon={ctx.WindowLevel === "Top" ? EyeOpen : EyeClose}
+    />
     <TitleBar />
   </div>
   {#if !ctx.CompactMode}

@@ -16,6 +16,7 @@ import type {
   UnListen,
   UserEvent,
   WindowSize,
+  WinLevel,
 } from "@tsck/lib";
 import { invokePayload, invokePayloadWithCallback, listen } from "$lib";
 import { ComfyUIAPI } from "./comfyui/comfyuiapi";
@@ -77,6 +78,7 @@ export type PageProps = {
 };
 export type TextLayerInfo = { content: string; layer_id: number; id: number };
 class Apps {
+  WindowLevel: WinLevel = $state("Normal");
   CompactMode = $state(false);
   globalShadowLayer = $state(false);
   IsWindowFocus = $state(false);
@@ -269,6 +271,14 @@ class Apps {
               console.log("ToggleShadow");
               this.toggleShadowLayer();
               break;
+            case "ToggleWindowLevel":
+              this.WindowLevel =
+                this.WindowLevel === "Normal" ? "Top" : "Normal";
+              invokePayload<UserEvent>({
+                type: "SetWindowLevel",
+                value: [this.WindowLevel, "main"],
+              });
+              break;
             case "FocusPage":
               this.globalActivePage = event.value - 1;
               break;
@@ -356,10 +366,6 @@ class Apps {
                 //show
                 this.CompactMode = false;
                 this.transformMainWindow();
-                invokePayload<UserEvent>({
-                  type: "SetWindowLevel",
-                  value: "Top",
-                });
               }
               break;
           }
