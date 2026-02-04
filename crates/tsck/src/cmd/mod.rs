@@ -7,6 +7,7 @@ use crate::{log_debug, log_error, ts_struct};
 use flume::Sender;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
+use std::os::windows::process::CommandExt;
 use std::process::Command;
 use std::sync::Arc;
 use std::thread::{self, sleep};
@@ -208,6 +209,7 @@ impl CmdrHelper {
             let pid = cmd.pid;
             if let Some(status) = Command::new("taskkill")
                 .args(["/PID", &pid.to_string(), "/F", "/T"])
+                .creation_flags(0x08000000)
                 .status()
                 .ok()
             {

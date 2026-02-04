@@ -632,21 +632,7 @@ impl TsckApp {
                 (view, None)
             }
             WindowSrc::Web(url, page) => {
-                let custom_script: String = match plugin_conf.custom_script.as_ref() {
-                    Some(script) => {
-                        let parent = env!("CARGO_MANIFEST_DIR");
-                        let script_path = Path::new(parent).join(script);
-                        match std::fs::read_to_string(script_path) {
-                            Ok(scripts) => scripts,
-                            Err(err) => {
-                                log_debug!("ERROR", dp!(err));
-                                "{}".to_string()
-                            }
-                        }
-                    }
-                    None => "{}".to_string(),
-                };
-
+                let custom_script = include_str!("../scripts/web.js");
                 let channel_bus = self.channel_bus.clone();
                 let view = builder
                     .with_url(url)
@@ -654,19 +640,30 @@ impl TsckApp {
                         _ = channel_bus.send((UE::NavigateWebview(url), None, Some(window_id)));
                         wry::NewWindowResponse::Deny
                     })
+                    .with_initialization_script(include_str!("../scripts/init.js"))
                     .with_initialization_script(custom_script)
                     .with_bounds(webview_bounds("view", size, toolbar_panel))
+                    .with_ipc_handler(self.ipc_handler(window_id))
                     .with_transparent(conf.transparent)
                     .build_as_child(&window)?;
                 view.zoom(scale_factor)?;
-                let panel = WebViewBuilder::new()
-                    .with_url(format!("{}/Toolbar?page={}", self.dev_url, page))
+                let panel_builder = WebViewBuilder::new()
                     .with_initialization_script(include_str!("../scripts/init.js"))
                     .with_bounds(webview_bounds("panel", size, toolbar_panel))
                     .with_accept_first_mouse(true)
                     .with_ipc_handler(self.ipc_handler(window_id))
-                    .with_transparent(conf.transparent)
-                    .build_as_child(&window)?;
+                    .with_transparent(conf.transparent);
+                let panel = {
+                    match cfg!(debug_assertions) {
+                        true => panel_builder
+                            .with_url(format!("{}/Toolbar?page={}", self.dev_url, page))
+                            .build_as_child(&window)?,
+                        false => {
+                            setup_custom_protocol(panel_builder, &format!("/Toolbar?page={}", page))
+                                .build_as_child(&window)?
+                        }
+                    }
+                };
                 (view, Some(panel))
             }
         };

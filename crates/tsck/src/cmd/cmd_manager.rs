@@ -96,6 +96,7 @@ impl ProcessManager {
     fn task_kill(&self, pid: u32) {
         let _ = Command::new("taskkill")
             .args(["/F", "/PID", &pid.to_string(), "/T"])
+            .creation_flags(0x08000000)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .creation_flags(0x08000000)
