@@ -1,10 +1,11 @@
 use crate::cmd::CommandConfig;
 use crate::event::TS_PATH;
+use crate::store::config::WindowSize;
 use crate::{DOTFILE_DIR, ts_struct};
-use kee::TKeePair;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use ts_rs::TS;
+use tsck_kee::TKeePair;
 use tsck_utils::ConfigStore;
 
 ts_struct! { path = TS_PATH,
@@ -106,7 +107,8 @@ app_config!(
     rawfilter_template		: Vec<RawFilterTemplate>,
     command_config				: CommandConfig,
     color_list						: Vec<String>,
-    whatsapp_url					: String
+    whatsapp_url					: String,
+    window_sizes          : Vec<WindowSize>
 
 );
 

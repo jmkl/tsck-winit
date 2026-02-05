@@ -1,6 +1,3 @@
-// ─────────────────────────────────────────────
-// Singleton + Context Helpers
-
 import { getContext, onDestroy, onMount, setContext } from "svelte";
 import type { TemplateLine } from "../routes/MainPanel/Thumbnail/stringUtils";
 import { DUMMY_TEMPLATELINE } from "./temp";
@@ -39,10 +36,6 @@ export function GetAppsState() {
   return getContext<Apps>(MAINCTX);
 }
 
-const WINDOW_SIZE: WindowSize[] = [
-  { width: 350, height: 25 },
-  { width: 350, height: 560 },
-];
 const LOCAL_STORAGE_ITEMS = "local-storage-items";
 export type LocalStorageItems = {
   selected_upscale_model: number;
@@ -105,6 +98,7 @@ class Apps {
     right: 0,
     bottom: 0,
   });
+  windowSizes: WindowSize[] | undefined = $state();
   youtubeThumbnailUrl: string | undefined = $state();
   textLayersInfo: TextLayerInfo[] = $state([]);
   facerestoreImageSource: string | undefined = $state();
@@ -146,6 +140,7 @@ class Apps {
         this.AppConfig = result;
         this.rawfilterColorList = this.AppConfig.color_list;
         this.rawfilterTemplates = this.AppConfig.rawfilter_template;
+        this.windowSizes = this.AppConfig.window_sizes;
         this.httpServerStaticUrl = `http://127.0.0.1:${this.AppConfig.http_server_port}`;
         this.todoInit();
         this.setupComfyuiHelper();
@@ -281,6 +276,7 @@ class Apps {
               break;
             case "FocusPage":
               this.globalActivePage = event.value - 1;
+              invokePayload<UserEvent>({ type: "FocusWindow", value: "main" });
               break;
             case "ToggleCompactMode":
               this.CompactMode = !this.CompactMode;
@@ -375,9 +371,10 @@ class Apps {
   }
 
   transformMainWindow() {
+    if (!this.windowSizes) return;
     invokePayload<UserEvent>({
       type: "SetWindowSize",
-      value: this.CompactMode ? WINDOW_SIZE[0] : WINDOW_SIZE[1],
+      value: this.CompactMode ? this.windowSizes[0] : this.windowSizes[1],
     });
     // invokePayload<UserEvent>({
     //   type: "TransformWindow",

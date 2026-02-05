@@ -1,4 +1,13 @@
 {
+  "lsp": {
+    "rust-analyzer": {
+      "initialization_options": {
+        "procMacro": {
+          "enable": true,
+        },
+      },
+    },
+  },
   "languages": {
     "Rust": {
       "language_servers": ["rust-analyzer"],

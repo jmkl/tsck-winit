@@ -1,6 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use rust_embed_for_web::{EmbedableFile, RustEmbed};
-use std::{borrow::Cow, process::Command};
+use std::borrow::Cow;
 use winit::{
     application::ApplicationHandler,
     event::WindowEvent,

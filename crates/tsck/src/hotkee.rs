@@ -6,9 +6,9 @@ use crate::{
     event::{ReadableHotkee, UserEvent},
     log_error,
 };
-use kee::{Event, Kee, SafeHWND, TKeePair, WindowInfo, list_windows};
 use parking_lot::Mutex;
-use tsck_utils::{Expr, Func, generate_func_enums, parse_func};
+use tsck_kee::{Event, Kee, SafeHWND, TKeePair, WindowInfo, list_windows};
+use tsck_utils::{Expr, generate_func_enums, parse_func};
 
 generate_func_enums!(
     KeeEntry => (
@@ -141,7 +141,7 @@ impl WindowOps {
     fn to_front(search_mode: SearchMode, payload: &str) {
         let start = Instant::now();
 
-        if let Some(window) = kee::list_windows().iter().find(|k| match search_mode {
+        if let Some(window) = tsck_kee::list_windows().iter().find(|k| match search_mode {
             SearchMode::Title => k.title().to_uppercase() == payload.to_uppercase(),
             SearchMode::Name => k.name().to_uppercase() == payload.to_uppercase(),
         }) {

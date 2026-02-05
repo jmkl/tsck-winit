@@ -14,11 +14,11 @@ use crate::utils::url_encode;
 use crate::utils::winview_util::webview_bounds;
 use crate::utils::youtubeapi::YoutubeApi;
 use crate::{ChannelBus, WindowState, dp, log_debug, log_error, log_warn, response_success};
-use kee::list_windows;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tsck_kee::list_windows;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::ActiveEventLoop;
@@ -559,6 +559,11 @@ impl TsckApp {
                             self.channel_bus.ws_send_to_all(payload);
                         }
                     }
+                }
+                UserEvent::FocusWindow(label) => {
+                    get_window_by_label!(self, label, |ws| {
+                        ws.window.focus_window();
+                    });
                 }
 
                 UserEvent::FocusPage(..)
