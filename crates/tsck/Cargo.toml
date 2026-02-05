@@ -7,7 +7,9 @@ edition = "2024"
 anyhow.workspace = true
 chrono.workspace = true
 flume.workspace = true
-kee = { path = "../../../kee/" }
+# kee = { path = "../../../kee/" }
+tsck-kee = { path = "../tsck-kee" }
+tsck-derive = {path="../tsck-derive"}
 mime_guess = "2.0.5"
 parking_lot.workspace = true
 regex-lite = "0.1.8"

@@ -172,6 +172,7 @@ pub enum UserEvent {
     YoutubeTitleWithApiKey(String, String),
     ToggleCompactMode,
     FocusPage(i32),
+    FocusWindow(String),
     ToggleWindowLevel,
 
     WhatsappUpdate {

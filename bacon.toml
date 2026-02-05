@@ -23,23 +23,27 @@ need_stdout = true
 command = ["cargo", "test", "-p", "tsck","--","--nocapture"]
 allow_warnings = true
 need_stdout = true
-on_success = "job:buildlib"
+on_success = "job:build-jslib"
 
 
-[jobs.buildlib]
+[jobs.build-jslib]
 command = ["bun", "run", "--cwd=js/@tsck", "build"]
 allow_warnings = true
 need_stdout = true
-on_success = "job:buildfrontend"
+on_success = "play-sound(name=90s-game-ui-6,volume=50)"
 
-[jobs.buildfrontend]
+[jobs.build-frontend]
 command = ["bun", "run", "--cwd=js/frontend", "build"]
 allow_warnings = true
 need_stdout = true
 on_success = "play-sound(name=90s-game-ui-6,volume=50)"
 
-[jobs.buildtsck]
+[jobs.b-tsck]
 command = ["cargo", "build", "-p", "tsck", "--release"]
 allow_warnings = true
 need_stdout = true
 on_success = "play-sound(name=90s-game-ui-6,volume=50)"
+[keybindings]
+l = "job:build-jslib"
+f = "job:build-frontend"
+t = "job:test"
