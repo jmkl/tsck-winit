@@ -50,7 +50,7 @@ impl<'a> Lexer<'a> {
                 break;
             }
         }
-
+        let a = "";
         let start = self.pos;
 
         match self.next_char()? {
