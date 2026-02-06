@@ -2,7 +2,7 @@
 
 ## **TODO**
 - [ ] working on workspace
-
+- [ ] expand GUI on photoshop selection change
 
 ```
 --| scripts/*.js

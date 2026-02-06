@@ -12,8 +12,9 @@ use crate::{beep::BeepController, kee_manager::Modifier};
 pub use kee_keys::{TKeePair, TKeePairList};
 pub use kee_windows::list_windows;
 pub use kee_windows::{SafeHWND, WindowInfo, get_current_active_window};
+pub use tokenizer::lexer::{KeeFunc, KeeParser};
 type EventHandler = Arc<dyn Fn(&Event) + Send + Sync + 'static>;
-pub use tokenizer::lexer::KeeParser;
+pub use tokenizer::func_lexer::{Func, FuncExpr, FuncLexer};
 #[derive(Debug, Clone)]
 pub enum Event {
     Keys(String, String),

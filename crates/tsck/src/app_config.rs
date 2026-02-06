@@ -1,11 +1,11 @@
 use crate::cmd::CommandConfig;
 use crate::event::TS_PATH;
 use crate::store::config::WindowSize;
-use crate::{DOTFILE_DIR, ts_struct};
+use crate::{DOTFILE_DIR, dp, log_error, ts_struct};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use ts_rs::TS;
-use tsck_kee::TKeePair;
+use tsck_kee::{KeeParser, TKeePair};
 use tsck_utils::ConfigStore;
 
 ts_struct! { path = TS_PATH,
@@ -76,25 +76,37 @@ macro_rules! app_config {
         }
     };
 }
+fn read_kee() -> Vec<TKeePair> {
+    if let Ok(content) = ConfigStore::<String>::read_file(DOTFILE_DIR, "kee.kee") {
+        let k = KeeParser::new(&content).parse();
+        return k
+            .iter()
+            .map(|k| TKeePair::new(k.kee, k.func))
+            .collect::<Vec<_>>();
+    } else {
+        return Vec::new();
+    }
+}
 
 app_config!(
     AppConfig =>AppConfigHandler,
     custom: (
         pub fn get_tkee_pair(&self)->Vec<TKeePair>{
-            self.config_store.get(|c| {
-                c.kees
-                    .clone()
-                    .into_iter()
-                    .map(|(k, v)| TKeePair::new(k, v))
-                    .collect()
-            })
+            read_kee()
+            // self.config_store.get(|c| {
+            //     c.kees
+            //         .clone()
+            //         .into_iter()
+            //         .map(|(k, v)| TKeePair::new(k, v))
+            //         .collect()
+            // })
         }
     ),
     monitors							: Vec<(i32, i32)>,
     apps									: Vec<String>,
     pages									: Vec<String>,
     workspaces						: Vec<String>,
-    kees									: HashMap<String, String>,
+    // kees									: HashMap<String, String>,
     version								: String,
     store_root						: String,
     http_server_port			: u16,

@@ -3,38 +3,69 @@ use std::{str::FromStr, sync::Arc, time::Instant};
 use crate::{
     ChannelBus,
     app_config::AppConfigHandler,
+    dp,
     event::{ReadableHotkee, UserEvent},
     log_error,
 };
 use parking_lot::Mutex;
+use tsck_derive::{FuncParser, ScopeParser};
 use tsck_kee::{Event, Kee, SafeHWND, TKeePair, WindowInfo, list_windows};
-use tsck_utils::{Expr, generate_func_enums, parse_func};
+use tsck_kee::{Func, FuncExpr, FuncLexer};
+use tsck_utils::{Expr, parse_func};
 
-generate_func_enums!(
-    KeeEntry => (
-        App => (
-            LaunchPlugin,
-            AppToFront,
-            CycleApps,
-            ReloadConfig,
-            CyclePages,
-            Page,
-            Script,
-            FuncCall,
-            ToggleShadow,
-            ToggleWindowLevel,
-            ToggleCompactMode
+#[derive(Debug, FuncParser)]
+enum WorkspaceFunc {
+    MoveWindow(String),
+    CycleWorkSpace,
+    Activate(i64),
+    MoveWindowToWorkSpace,
+}
 
+#[derive(Debug, FuncParser)]
+enum AppFunc {
+    Script(String),
+    FuncCall(String),
+    CyclePages(String),
+    LaunchPlugin(String),
+    ToggleWindowLevel,
+    Page(i32),
+    CycleApps,
+    AppToFront(String),
+    ReloadConfig,
+    ToggleCompactMode,
+    ToggleShadow,
+}
 
-        )
-        Workspace => (
-            CycleWorkSpace,
-            Activate,
-            MoveWindow,
-            MoveWindowToWorkSpace
-        )
-    )
-);
+#[derive(Debug, ScopeParser)]
+enum FuncEntries {
+    App(AppFunc),
+    Workspace(WorkspaceFunc),
+}
+
+// generate_func_enums!(
+//     KeeEntry => (
+//         App => (
+//             LaunchPlugin,
+//             AppToFront,
+//             CycleApps,
+//             ReloadConfig,
+//             CyclePages,
+//             Page,
+//             Script,
+//             FuncCall,
+//             ToggleShadow,
+//             ToggleWindowLevel,
+//             ToggleCompactMode
+
+//         )
+//         Workspace => (
+//             CycleWorkSpace,
+//             Activate,
+//             MoveWindow,
+//             MoveWindowToWorkSpace
+//         )
+//     )
+// );
 
 /// @variant
 /// Expr::String
@@ -153,21 +184,14 @@ impl WindowOps {
         let inc = AppConfigHandler::new().move_increment();
         if let Some(w) = list_windows().iter().find(|w| &w.hwnd == hwnd) {
             let (wx, wy) = (w.position().x, w.position().y);
-            match to {
-                "LEFT" => {
-                    _ = w.move_to(wx - inc, wy);
-                }
-                "RIGHT" => {
-                    _ = w.move_to(wx + inc, wy);
-                }
-                "UP" => {
-                    _ = w.move_to(wx, wy - inc);
-                }
-                "DOWN" => {
-                    _ = w.move_to(wx, wy + inc);
-                }
-                _ => {}
-            }
+            let (a, b) = match to {
+                "LEFT" => (wx - inc, wy),
+                "RIGHT" => (wx + inc, wy),
+                "UP" => (wx, wy - inc),
+                "DOWN" => (wx, wy + inc),
+                _ => (wx, wy),
+            };
+            _ = w.move_to(a, b);
         }
     }
 }
@@ -206,156 +230,103 @@ fn _spawn_hotkee(bus: Arc<ChannelBus>) -> anyhow::Result<()> {
     kee.lock()
         .on_message(move |event| match event {
             Event::Keys(_, f) => {
-                if let Some(cmd) = parse_func(f) {
-                    channel_bus.wake_up();
-                    if let Ok(entry) = KeeEntry::from_str(cmd.entry) {
-                        match entry {
-                            KeeEntry::App => {
-                                if let Ok(func) = AppFunc::from_str(cmd.func) {
-                                    match func {
-                                        AppFunc::ReloadConfig => {
-                                            {
-                                                apps.lock().update_apps();
-                                            }
-                                            _ = key_for_message.clone().lock().update_hotkeys(
-                                                AppConfigHandler::new().get_tkee_pair(),
-                                            );
-                                        }
+                channel_bus.wake_up();
+                if let Ok(entries) = FuncEntries::from_str(f) {
+                    match entries {
+                        FuncEntries::App(func) => match func {
+                            AppFunc::ReloadConfig => {
+                                {
+                                    apps.lock().update_apps();
+                                }
+                                _ = key_for_message
+                                    .clone()
+                                    .lock()
+                                    .update_hotkeys(AppConfigHandler::new().get_tkee_pair());
+                            }
 
-                                        AppFunc::LaunchPlugin => {
-                                            slice_args!(cmd, Expr::Ident, |win_title| {
-                                                _ = channel_bus.send((
-                                                    UserEvent::LaunchPlugin(
-                                                        win_title.to_lowercase(),
-                                                    ),
-                                                    None,
-                                                    None,
-                                                ));
-                                            });
-                                        }
+                            AppFunc::LaunchPlugin(win_title) => {
+                                _ = channel_bus.send((
+                                    UserEvent::LaunchPlugin(win_title.to_lowercase()),
+                                    None,
+                                    None,
+                                ));
+                            }
 
-                                        AppFunc::AppToFront => {
-                                            slice_args!(cmd, Expr::Ident, |what| {
-                                                WindowOps::to_front(SearchMode::Name, what);
-                                            });
-                                        }
-                                        AppFunc::CycleApps => {
-                                            apps.lock().next_app();
-                                        }
-                                        AppFunc::CyclePages => {
-                                            slice_args!(cmd, Expr::Ident, |direction| {
-                                                let direction = match *direction {
-                                                    "PREV" => -1,
-                                                    "NEXT" => 1,
-                                                    _ => 0,
-                                                };
-                                                _ = channel_bus.send((
-                                                    UserEvent::CyclePages(direction),
-                                                    None,
-                                                    None,
-                                                ));
-                                            })
-                                        }
+                            AppFunc::AppToFront(what) => {
+                                WindowOps::to_front(SearchMode::Name, &what);
+                            }
+                            AppFunc::CycleApps => {
+                                apps.lock().next_app();
+                            }
+                            AppFunc::CyclePages(direction) => {
+                                let direction = match direction.as_str() {
+                                    "PREV" => -1,
+                                    "NEXT" => 1,
+                                    _ => 0,
+                                };
+                                _ = channel_bus.send((
+                                    UserEvent::CyclePages(direction),
+                                    None,
+                                    None,
+                                ));
+                            }
 
-                                        AppFunc::Page => slice_args!(cmd, Expr::Number, |page| {
-                                            _ = channel_bus.send((
-                                                UserEvent::FocusPage(*page as i32),
-                                                None,
-                                                None,
-                                            ));
-                                        }),
-                                        AppFunc::Script => {
-                                            slice_args!(cmd, Expr::String, |script| {
-                                                _ = channel_bus.send((
-                                                    UserEvent::ExecuteScript(script.to_string()),
-                                                    None,
-                                                    None,
-                                                ));
-                                            })
-                                        }
-                                        AppFunc::FuncCall => {
-                                            slice_args!(cmd, Expr::Ident, |func| {
-                                                _ = channel_bus.send((
-                                                    UserEvent::FunctionCall {
-                                                        func: func.to_string(),
-                                                        args: vec![],
-                                                    },
-                                                    None,
-                                                    None,
-                                                ));
-                                            })
-                                        }
-                                        AppFunc::ToggleShadow => {
-                                            _ = channel_bus.send((
-                                                UserEvent::ToggleShadow,
-                                                None,
-                                                None,
-                                            ));
-                                        }
-                                        AppFunc::ToggleWindowLevel => {
-                                            _ = channel_bus.send((
-                                                UserEvent::ToggleWindowLevel,
-                                                None,
-                                                None,
-                                            ));
-                                        }
-                                        AppFunc::ToggleCompactMode => {
-                                            _ = channel_bus.send((
-                                                UserEvent::ToggleCompactMode,
-                                                None,
-                                                None,
-                                            ));
-                                        }
+                            AppFunc::Page(page) => {
+                                _ = channel_bus.send((UserEvent::FocusPage(page), None, None));
+                            }
+                            AppFunc::Script(script) => {
+                                _ = channel_bus.send((
+                                    UserEvent::ExecuteScript(script),
+                                    None,
+                                    None,
+                                ));
+                            }
+                            AppFunc::FuncCall(func) => {
+                                _ = channel_bus.send((
+                                    UserEvent::FunctionCall { func, args: vec![] },
+                                    None,
+                                    None,
+                                ));
+                            }
+                            AppFunc::ToggleShadow => {
+                                _ = channel_bus.send((UserEvent::ToggleShadow, None, None));
+                            }
+                            AppFunc::ToggleWindowLevel => {
+                                _ = channel_bus.send((UserEvent::ToggleWindowLevel, None, None));
+                            }
+                            AppFunc::ToggleCompactMode => {
+                                _ = channel_bus.send((UserEvent::ToggleCompactMode, None, None));
+                            }
+                        },
+                        FuncEntries::Workspace(func) => match func {
+                            WorkspaceFunc::CycleWorkSpace => {
+                                {
+                                    let mut clone_apps = apps.lock();
+                                    let index = clone_apps.next_workspace();
+                                    _ = channel_bus.send((
+                                        UserEvent::ActivateWorkSpace(index as i64),
+                                        None,
+                                        None,
+                                    ));
+                                };
+                            }
+                            WorkspaceFunc::Activate(page) => {
+                                _ = channel_bus.send((
+                                    UserEvent::ActivateWorkSpace(page),
+                                    None,
+                                    None,
+                                ));
+                            }
+                            WorkspaceFunc::MoveWindow(to) => {
+                                let clone_apps = apps.clone();
+                                {
+                                    if let Some(w) = clone_apps.lock().get_active_window() {
+                                        WindowOps::move_window(&to, &w.hwnd);
                                     }
                                 }
                             }
-                            KeeEntry::Workspace => {
-                                if let Ok(func) = WorkspaceFunc::from_str(cmd.func) {
-                                    match func {
-                                        WorkspaceFunc::CycleWorkSpace => {
-                                            {
-                                                let mut clone_apps = apps.lock();
-                                                let index = clone_apps.next_workspace();
-                                                _ = channel_bus.send((
-                                                    UserEvent::ActivateWorkSpace(index as i64),
-                                                    None,
-                                                    None,
-                                                ));
-                                            };
-                                        }
-                                        WorkspaceFunc::Activate => match cmd.args.as_slice() {
-                                            [Expr::Number(page)] => {
-                                                _ = channel_bus.send((
-                                                    UserEvent::ActivateWorkSpace(*page),
-                                                    None,
-                                                    None,
-                                                ));
-                                            }
-                                            _ => {}
-                                        },
-                                        WorkspaceFunc::MoveWindow => match cmd.args.as_slice() {
-                                            [Expr::Ident(to)] => {
-                                                let clone_apps = apps.clone();
-                                                {
-                                                    if let Some(w) =
-                                                        clone_apps.lock().get_active_window()
-                                                    {
-                                                        WindowOps::move_window(*to, &w.hwnd);
-                                                    }
-                                                }
-                                            }
-                                            _ => {}
-                                        },
-                                        WorkspaceFunc::MoveWindowToWorkSpace => {
-                                            match cmd.args.as_slice() {
-                                                [Expr::Ident(to)] => {}
-                                                _ => {}
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                            WorkspaceFunc::MoveWindowToWorkSpace => {}
+                        },
                     }
                 }
             }
