@@ -182,7 +182,9 @@ class Apps {
 
     invokePayload(payload);
   }
-  resetShadowLayer() {}
+  resetShadowLayer() {
+    this.globalShadowLayer = false;
+  }
   loadLocalStorateItems() {
     const def_state: LocalStorageItems = {
       selected_upscale_model: 0,
@@ -333,7 +335,11 @@ class Apps {
               this.facerestoreSelectionBound = val.bounds;
               this.globalActivePage = HERO_PAGE.FACERESTORE;
               this.IsWindowFocus = true;
-
+              if(this.CompactMode){
+                this.CompactMode = false;
+                this.transformMainWindow();
+              }
+              invokePayload<UserEvent>({ type: "FocusWindow", value: "main" });
               break;
             case "CyclePages":
               this.IsWindowFocus = true;
