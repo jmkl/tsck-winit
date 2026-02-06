@@ -26,6 +26,17 @@ impl<T> ConfigStore<T>
 where
     T: Serialize + for<'de> Deserialize<'de> + Default,
 {
+    pub fn read_file(app_name: &'static str, config_name: &'static str) -> Result<String> {
+        let dir = Self::root_dir(app_name)?;
+        let path = dir.join(config_name);
+        let data = if path.exists() {
+            let content = fs::read_to_string(&path)?;
+            content
+        } else {
+            "".to_string()
+        };
+        Ok(data)
+    }
     pub fn new(app_name: &'static str, config_name: &'static str) -> Result<Self> {
         let dir = Self::root_dir(app_name)?;
         let path = dir.join(config_name);
