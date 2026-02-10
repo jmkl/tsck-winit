@@ -15,6 +15,7 @@
   import Chatgpt from "$lib/components/Icon/Chatgpt.svelte";
   import { fade, fly, slide } from "svelte/transition";
   import Expand from "$lib/components/Icon/Expand.svelte";
+  import { useKeyboard } from "$lib/useKeyboard.svelte";
   let iconStatus = $state(false);
   let timeout: NodeJS.Timeout | undefined = $state();
   type BrowserType = {
@@ -30,6 +31,22 @@
     { title: "AISTUDIO", url: "https://aistudio.google.com/" },
   ];
   onMount(() => {
+    useKeyboard([
+      {
+        key: "Tab",
+        ignoreInputs: true,
+        handler: () => {
+          console.log("TAB");
+        },
+      },
+      {
+        key: "t",
+        handler: () => {
+          console.log("KEY T");
+        },
+      },
+    ]);
+    console.log("HELLO");
     if (timeout) clearInterval(timeout);
     timeout = setInterval(() => {
       iconStatus = !iconStatus;
@@ -80,6 +97,11 @@
   }
 </script>
 
+<svelte:window
+  onfocus={() => {
+    console.log("FOCUS");
+  }}
+/>
 {#snippet renderButton(llm: BrowserType, index: number)}
   <button
     onclick={() => {

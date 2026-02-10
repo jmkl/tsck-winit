@@ -1,4 +1,3 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod app;
 mod app_config;
 mod cmd;
@@ -15,7 +14,7 @@ use crate::app::TsckApp;
 use crate::app_config::{AppConfig, AppConfigHandler};
 use crate::cmd::{CmdrHelper, CommandConfig};
 use crate::event::{ChannelEvent, UserEvent, WinLevel};
-use crate::hotkee::init_hotkee;
+use crate::hotkee::__spawn_hotkee;
 use crate::io::{HttpServer, Response};
 use crate::photoshop::{PaginationItems, SmartObjectItem, SmartObjects, TextureRepo};
 use crate::store::config::WindowConf;
@@ -26,8 +25,11 @@ use parking_lot::Mutex;
 use rust_embed_for_web::RustEmbed;
 use serde::Serialize;
 use std::collections::HashMap;
+use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::Arc;
+use tsck_utils::ConfigStore;
 use winit::event_loop::{EventLoop, EventLoopProxy};
 use winit::window::Window;
 use wry::WebView;
@@ -124,6 +126,53 @@ impl ChannelBus {
             websocket_bus: unbounded::<WebsocketMessagePayload>(),
         })
     }
+    pub fn init(self) -> Self {
+        _ = self.init_hotkee();
+        _ = self.init_file_server();
+        self
+    }
+    fn init_hotkee(&self) {
+        let proxy = self.proxy.clone();
+        let sender = self.sender.clone();
+        std::thread::spawn(|| {
+            _ = __spawn_hotkee(proxy, sender);
+        });
+    }
+
+    fn init_file_server(&self) -> anyhow::Result<()> {
+        let root_path = { self.get_config().lock().store_root() };
+        let (smartobject, texture) = {
+            let smartobject = Path::new(&root_path)
+                .join("smartobject")
+                .join("thumbs")
+                .to_string_lossy()
+                .to_string();
+            let texture = Path::new(&root_path)
+                .join("texture")
+                .join(".thumbnail")
+                .to_string_lossy()
+                .to_string();
+            (smartobject, texture)
+        };
+        let config = self.get_config().clone();
+        std::thread::spawn(move || -> anyhow::Result<()> {
+            let port = {
+                let port = config.lock().http_server_port();
+                port
+            };
+            HttpServer::new(port, AppState {})
+                .cors(true)
+                .static_files(smartobject, "/smartobject")
+                .static_files(texture, "/texture")
+                .on_request(|req, _| match (req.method, req.path.as_str()) {
+                    (io::Method::GET, "/") => Response::json("[\"404 Not Fuck\"]"),
+                    _ => Response::not_found(),
+                })
+                .listen()
+        });
+        Ok(())
+    }
+
     pub fn send(&self, event: ChannelEvent) {
         if let Err(err) = self.sender.send(event) {
             log_error!("Error sending ", err);
@@ -194,10 +243,6 @@ impl ChannelBus {
         self.textures.lock().set_favorite(id, favorite).ok()
     }
 
-    //smartobject API
-    fn smartobject_add_file(&self, item: SmartObjectItem) {
-        self.smartobject.lock().files.push(item);
-    }
     fn smartobject_filter_chunk(
         &self,
         filter: &str,
@@ -209,7 +254,7 @@ impl ChannelBus {
     }
     fn smartobject_delete(&self, item: SmartObjectItem) {
         let mut guard = self.smartobject.lock();
-        if let Ok(success) = guard.delete_psb(&item.name) {
+        if let Ok(_success) = guard.delete_psb(&item.name) {
             if let Some(found) = guard.files.iter().position(|it| it.name == item.name) {
                 guard.files.remove(found);
             }
@@ -271,7 +316,7 @@ impl ChannelBus {
                     }
                     io::ws::Event::Message(id, message) => {
                         _ = bus_sender.send((
-                            UserEvent::IncomingWebsocketMessage(id, message),
+                            UserEvent::IncomingWebsocketMessage(id as u32, message),
                             None,
                             None,
                         ));
@@ -305,6 +350,8 @@ fn print_help() {
   ██  ▄▄██▀ ▀████ ██ ██
     tsck.exe                : run gui
     tsck.exe delete         : delete Webview2 folder
+    tsck.exe config         : edit conf.json
+    tsck.exe kee            : edit kee.kee
 "#
     );
 }
@@ -319,6 +366,14 @@ fn delete_cache() -> anyhow::Result<bool> {
     }
     Ok(false)
 }
+fn edit_config(app_name: &str) -> anyhow::Result<()> {
+    let root = ConfigStore::<String>::get_file_path(DOTFILE_DIR, app_name)?;
+    Command::new("pwsh")
+        .args(["-NoLogo", "-NoProfile", "-C", &format!("start  {}", &root)])
+        .creation_flags(0x0800000)
+        .spawn()?;
+    Ok(())
+}
 
 fn main() -> anyhow::Result<()> {
     let args: Vec<_> = std::env::args().collect();
@@ -328,53 +383,30 @@ fn main() -> anyhow::Result<()> {
                 let result = delete_cache();
                 println!("Deleted status {result:?}");
             }
+            "config" => {
+                _ = edit_config("conf.json");
+            }
+            "kee" => {
+                _ = edit_config("kee.kee");
+            }
             _ => print_help(),
         }
         return Ok(());
     }
+    {
+        #[cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+        let event_loop = EventLoop::new()?;
+        event_loop.listen_device_events(winit::event_loop::DeviceEvents::Never);
+        let bus = Arc::new(
+            ChannelBus::new(event_loop.create_proxy())?
+                .bind_websocket()
+                .init(),
+        );
 
-    let event_loop = EventLoop::new()?;
-    event_loop.listen_device_events(winit::event_loop::DeviceEvents::Never);
-    let bus = Arc::new(ChannelBus::new(event_loop.create_proxy())?.bind_websocket());
-    init_hotkee(bus.clone());
-    init_file_server(bus.clone())?;
-
-    event_loop.run_app(TsckApp::new(bus))?;
+        event_loop.run_app(TsckApp::new(bus))?;
+    }
 
     Ok(())
 }
 
 struct AppState;
-
-fn init_file_server(channel_bus: Arc<ChannelBus>) -> anyhow::Result<()> {
-    let root_path = { channel_bus.get_config().lock().store_root() };
-    let (smartobject, texture) = {
-        let smartobject = Path::new(&root_path)
-            .join("smartobject")
-            .join("thumbs")
-            .to_string_lossy()
-            .to_string();
-        let texture = Path::new(&root_path)
-            .join("texture")
-            .join(".thumbnail")
-            .to_string_lossy()
-            .to_string();
-        (smartobject, texture)
-    };
-    std::thread::spawn(move || -> anyhow::Result<()> {
-        let port = {
-            let port = channel_bus.get_config().lock().http_server_port();
-            port
-        };
-        HttpServer::new(port, AppState {})
-            .cors(true)
-            .static_files(smartobject, "/smartobject")
-            .static_files(texture, "/texture")
-            .on_request(|req, _| match (req.method, req.path.as_str()) {
-                (io::Method::GET, "/") => Response::json("[\"404 Not Fuck\"]"),
-                _ => Response::not_found(),
-            })
-            .listen()
-    });
-    Ok(())
-}

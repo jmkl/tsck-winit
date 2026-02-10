@@ -1,68 +1,68 @@
 {
-	"dev_url": "http://127.0.0.1:5566",
-	"plugins": {
-		"main": {
-			"with_window": true,
-			"custom_script": null,
-			"device_event_filter": false,
-			"window": {
-				"decorations": false,
-				"always_on_top": false,
-				"shadow": false,
-				"window_src": { "Local": "/" },
-				"window_size": {
-					"width": 320,
-					"height": 200
-				},
-				"window_position": {
-					"x": 1800,
-					"y": 1150
-				}
-			}
-		},
-		"workspace": {
-			"with_window": true,
-			"custom_script": null,
-			"device_event_filter": true,
-			"window": {
-				"decorations": false,
-				"always_on_top": true,
-				"auto_launch": true,
-				"skip_taskbar": true,
-				"receive_cursor_event": false,
-				"shadow": false,
-				"window_src": { "Local": "/Workspace" },
-				"window_size": {
-					"width": 400,
-					"height": 40
-				},
-				"window_position": {
-					"x": 970,
-					"y": 0
-				}
-			}
-		},
-		"tsck-browser": {
-			"with_window": true,
-			"custom_script": "scripts/google.js",
-			"device_event_filter": false,
-			"window": {
-				"decorations": false,
-				"always_on_top": false,
-				"auto_launch": false,
-				"window_src": {
-					"Web": ["https://google.com/search?udm=2&q=mia+malkova", "google"]
-				},
-				"shadow": true,
-				"webview_zoom_factor": 0.8,
-				"toolbar_panel": {
-					"absolute": false
-				},
-				"window_size": {
-					"width": 1600,
-					"height": 900
-				}
-			}
-		}
-	}
+  "dev_url": "http://127.0.0.1:5566",
+  "plugins": {
+    "main": {
+      "with_window": true,
+      "custom_script": null,
+      "device_event_filter": false,
+      "window": {
+        "decorations": false,
+        "always_on_top": false,
+        "shadow": false,
+        "window_src": { "Local": "/" },
+        "window_size": {
+          "width": 320,
+          "height": 200
+        },
+        "window_position": {
+          "x": 1800,
+          "y": 1150
+        }
+      }
+    },
+    "workspace": {
+      "with_window": true,
+      "custom_script": null,
+      "device_event_filter": true,
+      "window": {
+        "decorations": false,
+        "always_on_top": true,
+        "auto_launch": true,
+        "skip_taskbar": true,
+        "receive_cursor_event": false,
+        "shadow": false,
+        "window_src": { "Local": "/Workspace" },
+        "window_size": {
+          "width": 400,
+          "height": 40
+        },
+        "window_position": {
+          "x": 970,
+          "y": 0
+        }
+      }
+    },
+    "tsck-browser": {
+      "with_window": true,
+      "custom_script": "scripts/google.js",
+      "device_event_filter": false,
+      "window": {
+        "decorations": false,
+        "always_on_top": false,
+        "auto_launch": false,
+        "window_src": {
+          "Web": ["https://google.com/search?udm=2&q=mia+malkova", "google"]
+        },
+        "shadow": true,
+        "webview_zoom_factor": 0.8,
+        "toolbar_panel": {
+          "absolute": false
+        },
+        "window_size": {
+          "width": 1600,
+          "height": 900
+        }
+      }
+    }
+  }
 }

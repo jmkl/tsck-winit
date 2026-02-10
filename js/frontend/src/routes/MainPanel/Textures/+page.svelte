@@ -13,6 +13,7 @@
     index: number;
   };
   const ctx = GetAppsState();
+  let forceEnter = $state(0);
   let textureDialog: HTMLDivElement | undefined = $state();
   let currentCategory = $state("Favorite");
   let gridItems = $state.raw<HTMLElement[]>([]);
@@ -42,6 +43,7 @@
       },
       onEnter: (item) => {
         appendSelection(item);
+        forceEnter++;
       },
 
       onSetFavorite: (item) => {
@@ -155,7 +157,7 @@
             currentCategory = cat.category;
             fetchTextures(cat.category);
           }}
-          class="rounded-sm bg-error/20 p-1"
+          class="rounded-sm bg-error/20 p-1 focus:border-error border border-transparent"
         >
           <div class="flex w-full flex-row gap-2 text-[12px] px-1">
             <span
@@ -178,6 +180,7 @@
   class="flex h-full w-full flex-col items-center overflow-hidden p-2"
 >
   <ImageGrid
+    {forceEnter}
     serverUrl={ctx.httpServerStaticUrl + "/texture"}
     appendSelected={appendSelection}
     files={pageFiles}
