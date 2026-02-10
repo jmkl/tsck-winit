@@ -14,6 +14,7 @@ enum FuncToken<'a> {
 pub enum FuncExpr<'a> {
     Number(i64),
     String(&'a str),
+    TupleString(&'a str, &'a str),
     Ident(&'a str),
 
     Call {
@@ -128,7 +129,6 @@ impl<'a> FuncLexer<'a> {
 
         loop {
             items = FuncLexer::parse_expr(lexer);
-
             match lexer.next_token()? {
                 FuncToken::Comma => continue,
                 FuncToken::RParen => break,
@@ -140,10 +140,10 @@ impl<'a> FuncLexer<'a> {
     }
 
     fn parse_expr<'b>(lexer: &mut FuncLexer<'b>) -> Option<FuncExpr<'b>> {
-        match lexer.next_token()? {
+        let next_token = lexer.next_token()?;
+        match next_token {
             FuncToken::Number(n) => Some(FuncExpr::Number(n)),
             FuncToken::String(s) => Some(FuncExpr::String(s)),
-
             FuncToken::Ident(name) => {
                 if matches!(lexer.peek_token(), Some(FuncToken::LParen)) {
                     lexer.next_token();
@@ -172,9 +172,13 @@ impl<'a> FuncLexer<'a> {
                         _ => return None,
                     }
                 }
+
                 match items.as_slice() {
                     [FuncExpr::Number(num1), FuncExpr::Number(num2)] => {
                         Some(FuncExpr::Tuple(*num1, *num2))
+                    }
+                    [FuncExpr::String(num1), FuncExpr::String(num2)] => {
+                        Some(FuncExpr::TupleString(*num1, *num2))
                     }
                     _ => None,
                 }

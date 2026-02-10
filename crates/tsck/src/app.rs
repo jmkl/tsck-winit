@@ -1,6 +1,5 @@
 use crate::event::{
-    EventPayload, ReadableHotkee, UserEvent, WinLevel, WindowInfoExt, WsMessagePayload,
-    WsPayloadContent,
+    EventPayload, UserEvent, WinLevel, WindowInfoExt, WsMessagePayload, WsPayloadContent,
 };
 use crate::ipc::{IpcHelper, IpcRequest, IpcResponse};
 use crate::photoshop::customscripts::CustomScripts;
@@ -229,7 +228,7 @@ impl TsckApp {
                 }
                 UE::GetReadableHotkee => {
                     get_window!(self, window_id, |ws| {
-                        request.map(|req| -> anyhow::Result<()> {
+                        request.map(|_req| -> anyhow::Result<()> {
                             // let kees: Vec<ReadableHotkee> = self
                             //     .channel_bus
                             //     .get_app_config()

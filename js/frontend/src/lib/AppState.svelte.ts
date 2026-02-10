@@ -170,6 +170,7 @@ class Apps {
   showLoadingPanel(show: boolean) {
     this.LoadingPanel = show;
   }
+
   toggleShadowLayer() {
     this.globalShadowLayer = !this.globalShadowLayer;
     const payload: UserEvent = {
@@ -335,7 +336,7 @@ class Apps {
               this.facerestoreSelectionBound = val.bounds;
               this.globalActivePage = HERO_PAGE.FACERESTORE;
               this.IsWindowFocus = true;
-              if(this.CompactMode){
+              if (this.CompactMode) {
                 this.CompactMode = false;
                 this.transformMainWindow();
               }

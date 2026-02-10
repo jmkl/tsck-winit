@@ -12,6 +12,10 @@ use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::Accessibility::{
     HWINEVENTHOOK, SetWinEventHook, UnhookWinEvent, WINEVENTPROC,
 };
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP,
+    MAPVK_VK_TO_VSC, MapVirtualKeyExW, MapVirtualKeyW, SendInput, VK_LMENU, VK_MENU,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
     EVENT_SYSTEM_FOREGROUND, GetMessageW, MSG, WINEVENT_OUTOFCONTEXT,
 };
@@ -356,12 +360,9 @@ impl WindowManager {
                 ShowWindow(hwnd, SW_RESTORE);
             }
 
-            // Method 1: Try SetForegroundWindow (most common)
             if SetForegroundWindow(hwnd) == TRUE {
                 return Ok(());
             }
-
-            // Method 2: If Method 1 fails, use the workaround
             Self::force_window_to_front(hwnd)
         }
     }
@@ -444,6 +445,41 @@ impl WindowManager {
                 Err("Failed to set always on top".to_string())
             }
         }
+    }
+
+    fn force_window_active(handle: Hwnd) -> Result<(), String> {
+        let alt_sc = unsafe { MapVirtualKeyW(18u32, MAPVK_VK_TO_VSC) };
+        let inputs = [
+            INPUT {
+                r#type: INPUT_KEYBOARD,
+                Anonymous: INPUT_0 {
+                    ki: KEYBDINPUT {
+                        wVk: VK_LMENU,
+                        wScan: alt_sc as u16,
+                        dwFlags: KEYEVENTF_EXTENDEDKEY,
+                        dwExtraInfo: 0,
+                        time: 0,
+                    },
+                },
+            },
+            INPUT {
+                r#type: INPUT_KEYBOARD,
+                Anonymous: INPUT_0 {
+                    ki: KEYBDINPUT {
+                        wVk: VK_LMENU,
+                        wScan: alt_sc as u16,
+                        dwFlags: KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP,
+                        dwExtraInfo: 0,
+                        time: 0,
+                    },
+                },
+            },
+        ];
+        // Simulate a key press and release
+        unsafe { SendInput(&inputs, inputs.len() as i32) };
+
+        unsafe { SetForegroundWindow(handle) };
+        Ok(())
     }
 
     /// Force window to front using thread attachment technique
