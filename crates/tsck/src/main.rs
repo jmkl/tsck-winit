@@ -1,4 +1,4 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#[cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod app;
 mod app_config;
 mod cmd;
@@ -11,23 +11,31 @@ mod photoshop;
 mod protocol;
 mod store;
 mod utils;
+mod workspace_manager;
 use crate::app::TsckApp;
 use crate::app_config::{AppConfig, AppConfigHandler};
 use crate::cmd::{CmdrHelper, CommandConfig};
 use crate::event::{ChannelEvent, UserEvent, WinLevel};
-use crate::hotkee::init_hotkee;
+use crate::hotkee::__spawn_hotkee;
 use crate::io::{HttpServer, Response};
 use crate::photoshop::{PaginationItems, SmartObjectItem, SmartObjects, TextureRepo};
 use crate::store::config::WindowConf;
 use crate::store::{DbStore, PageChunk, Texture};
 use crate::utils::winview_util::webview_bounds;
+use crate::workspace_manager::WorkspaceManager;
 use flume::{Receiver, Sender, unbounded};
 use parking_lot::Mutex;
 use rust_embed_for_web::RustEmbed;
 use serde::Serialize;
 use std::collections::HashMap;
+use std::io::Write;
+use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::process::Command;
+use std::sync::{Arc, OnceLock};
+use std::thread;
+use std::time::Duration;
+use tsck_utils::ConfigStore;
 use winit::event_loop::{EventLoop, EventLoopProxy};
 use winit::window::Window;
 use wry::WebView;
@@ -46,6 +54,15 @@ struct WindowState {
     win_level: Arc<Mutex<WinLevel>>,
 }
 
+static WORKSPACE_MANAGER: OnceLock<Mutex<WorkspaceManager>> = OnceLock::new();
+pub fn workspace_manager<F>(f: F)
+where
+    F: FnOnce(&mut WorkspaceManager),
+{
+    let wm = WORKSPACE_MANAGER.get_or_init(|| Mutex::new(WorkspaceManager::new()));
+    let mut guard = wm.lock();
+    f(&mut guard);
+}
 #[allow(unused)]
 impl WindowState {
     fn new(
@@ -124,6 +141,122 @@ impl ChannelBus {
             websocket_bus: unbounded::<WebsocketMessagePayload>(),
         })
     }
+    pub fn init(self) -> Self {
+        _ = self.init_global_window_service();
+        _ = self.init_hotkee();
+        _ = self.init_file_server();
+        self
+    }
+    fn init_hotkee(&self) {
+        let proxy = self.proxy.clone();
+        let sender = self.sender.clone();
+        std::thread::spawn(|| {
+            _ = __spawn_hotkee(proxy, sender);
+        });
+    }
+
+    fn init_global_window_service(&self) {
+        let sender = self.sender.clone();
+        let proxy = self.proxy.clone();
+        tsck_kee::api::app_begin(|rx| {
+            std::thread::spawn(move || {
+                while let Ok(event) = rx.recv() {
+                    match event {
+                        tsck_kee::api::WindowEvent::Delete(hwnd) => {
+                            log_debug!("DESTROY");
+
+                            workspace_manager(|f| {
+                                f.on_event(
+                                    workspace_manager::WorkspaceApiEvent::Delete(hwnd),
+                                    sender.clone(),
+                                    proxy.clone(),
+                                );
+                            });
+                        }
+                        tsck_kee::api::WindowEvent::Create => {
+                            workspace_manager(|f| {
+                                f.on_event(
+                                    workspace_manager::WorkspaceApiEvent::Create,
+                                    sender.clone(),
+                                    proxy.clone(),
+                                );
+                            });
+                        }
+                        tsck_kee::api::WindowEvent::FocusChange => {
+                            workspace_manager(|f| {
+                                f.on_event(
+                                    workspace_manager::WorkspaceApiEvent::FocusChange,
+                                    sender.clone(),
+                                    proxy.clone(),
+                                );
+                            });
+                        }
+                        tsck_kee::api::WindowEvent::Update => {
+                            workspace_manager(|f| {
+                                f.on_event(
+                                    workspace_manager::WorkspaceApiEvent::Update,
+                                    sender.clone(),
+                                    proxy.clone(),
+                                );
+                            });
+                        }
+                        tsck_kee::api::WindowEvent::Unknown(ev) => {
+                            log_debug!("UNKNOW", &ev);
+                            workspace_manager(|f| {
+                                f.on_event(
+                                    workspace_manager::WorkspaceApiEvent::Unknown(ev),
+                                    sender.clone(),
+                                    proxy.clone(),
+                                );
+                            });
+                        }
+                    }
+                }
+            });
+        });
+        thread::spawn(|| {
+            std::thread::sleep(Duration::from_millis(1000));
+            workspace_manager(|f| {
+                let apps = tsck_kee::api::app_get_all();
+                f.add_entries(&apps);
+            });
+        });
+    }
+
+    fn init_file_server(&self) -> anyhow::Result<()> {
+        let root_path = { self.get_config().lock().store_root() };
+        let (smartobject, texture) = {
+            let smartobject = Path::new(&root_path)
+                .join("smartobject")
+                .join("thumbs")
+                .to_string_lossy()
+                .to_string();
+            let texture = Path::new(&root_path)
+                .join("texture")
+                .join(".thumbnail")
+                .to_string_lossy()
+                .to_string();
+            (smartobject, texture)
+        };
+        let config = self.get_config().clone();
+        std::thread::spawn(move || -> anyhow::Result<()> {
+            let port = {
+                let port = config.lock().http_server_port();
+                port
+            };
+            HttpServer::new(port, AppState {})
+                .cors(true)
+                .static_files(smartobject, "/smartobject")
+                .static_files(texture, "/texture")
+                .on_request(|req, _| match (req.method, req.path.as_str()) {
+                    (io::Method::GET, "/") => Response::json("[\"404 Not Fuck\"]"),
+                    _ => Response::not_found(),
+                })
+                .listen()
+        });
+        Ok(())
+    }
+
     pub fn send(&self, event: ChannelEvent) {
         if let Err(err) = self.sender.send(event) {
             log_error!("Error sending ", err);
@@ -194,10 +327,6 @@ impl ChannelBus {
         self.textures.lock().set_favorite(id, favorite).ok()
     }
 
-    //smartobject API
-    fn smartobject_add_file(&self, item: SmartObjectItem) {
-        self.smartobject.lock().files.push(item);
-    }
     fn smartobject_filter_chunk(
         &self,
         filter: &str,
@@ -209,7 +338,7 @@ impl ChannelBus {
     }
     fn smartobject_delete(&self, item: SmartObjectItem) {
         let mut guard = self.smartobject.lock();
-        if let Ok(success) = guard.delete_psb(&item.name) {
+        if let Ok(_success) = guard.delete_psb(&item.name) {
             if let Some(found) = guard.files.iter().position(|it| it.name == item.name) {
                 guard.files.remove(found);
             }
@@ -271,7 +400,7 @@ impl ChannelBus {
                     }
                     io::ws::Event::Message(id, message) => {
                         _ = bus_sender.send((
-                            UserEvent::IncomingWebsocketMessage(id, message),
+                            UserEvent::IncomingWebsocketMessage(id as u32, message),
                             None,
                             None,
                         ));
@@ -305,6 +434,8 @@ fn print_help() {
   ██  ▄▄██▀ ▀████ ██ ██
     tsck.exe                : run gui
     tsck.exe delete         : delete Webview2 folder
+    tsck.exe config         : edit conf.json
+    tsck.exe kee            : edit kee.kee
 "#
     );
 }
@@ -319,6 +450,67 @@ fn delete_cache() -> anyhow::Result<bool> {
     }
     Ok(false)
 }
+fn edit_config(app_name: &str) -> anyhow::Result<()> {
+    let root = ConfigStore::<String>::get_file_path(DOTFILE_DIR, app_name)?;
+    Command::new("pwsh")
+        .args(["-NoLogo", "-NoProfile", "-C", &format!("start  {}", &root)])
+        .creation_flags(0x0800000)
+        .spawn()?;
+    Ok(())
+}
+
+fn print_command() {
+    println!(
+        r#"
+wm list       : list all active_entries
+wm active     : get active workspace
+wm cycle      : cycle active workspace
+wm next       : activate next workspace
+wm reset      : reset all workspace
+"#
+    );
+}
+
+fn spawn_input() {
+    std::thread::spawn(|| -> anyhow::Result<()> {
+        loop {
+            std::io::stdout().flush()?;
+            let mut input = String::new();
+            std::io::stdin().read_line(&mut input)?;
+            let input = input.trim();
+            match input {
+                "wm list" => {
+                    workspace_manager(|wm| {
+                        for entries in wm.get_entries() {
+                            println!(
+                                "{} {} {:?}",
+                                entries.app, entries.workspace, entries.real_pos
+                            );
+                        }
+                    });
+                }
+                "wm active" => {
+                    workspace_manager(|wm| {});
+                }
+                "wm cycle" => {
+                    workspace_manager(|wm| {});
+                }
+                "wm next" => {
+                    workspace_manager(|wm| {});
+                }
+                "wm reset" => {
+                    workspace_manager(|wm| {});
+                }
+                "exit" => {
+                    std::process::exit(69);
+                }
+                _ => {
+                    print_command();
+                }
+            }
+        }
+    });
+}
 
 fn main() -> anyhow::Result<()> {
     let args: Vec<_> = std::env::args().collect();
@@ -328,53 +520,30 @@ fn main() -> anyhow::Result<()> {
                 let result = delete_cache();
                 println!("Deleted status {result:?}");
             }
+            "config" => {
+                _ = edit_config("conf.json");
+            }
+            "kee" => {
+                _ = edit_config("kee.kee");
+            }
             _ => print_help(),
         }
         return Ok(());
     }
+    {
+        spawn_input();
+        let event_loop = EventLoop::new()?;
+        event_loop.listen_device_events(winit::event_loop::DeviceEvents::Never);
+        let bus = Arc::new(
+            ChannelBus::new(event_loop.create_proxy())?
+                .bind_websocket()
+                .init(),
+        );
 
-    let event_loop = EventLoop::new()?;
-    event_loop.listen_device_events(winit::event_loop::DeviceEvents::Never);
-    let bus = Arc::new(ChannelBus::new(event_loop.create_proxy())?.bind_websocket());
-    init_hotkee(bus.clone());
-    init_file_server(bus.clone())?;
-
-    event_loop.run_app(TsckApp::new(bus))?;
+        event_loop.run_app(TsckApp::new(bus))?;
+    }
 
     Ok(())
 }
 
 struct AppState;
-
-fn init_file_server(channel_bus: Arc<ChannelBus>) -> anyhow::Result<()> {
-    let root_path = { channel_bus.get_config().lock().store_root() };
-    let (smartobject, texture) = {
-        let smartobject = Path::new(&root_path)
-            .join("smartobject")
-            .join("thumbs")
-            .to_string_lossy()
-            .to_string();
-        let texture = Path::new(&root_path)
-            .join("texture")
-            .join(".thumbnail")
-            .to_string_lossy()
-            .to_string();
-        (smartobject, texture)
-    };
-    std::thread::spawn(move || -> anyhow::Result<()> {
-        let port = {
-            let port = channel_bus.get_config().lock().http_server_port();
-            port
-        };
-        HttpServer::new(port, AppState {})
-            .cors(true)
-            .static_files(smartobject, "/smartobject")
-            .static_files(texture, "/texture")
-            .on_request(|req, _| match (req.method, req.path.as_str()) {
-                (io::Method::GET, "/") => Response::json("[\"404 Not Fuck\"]"),
-                _ => Response::not_found(),
-            })
-            .listen()
-    });
-    Ok(())
-}

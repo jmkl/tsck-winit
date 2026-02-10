@@ -1,30 +1,36 @@
 mod beep;
+mod kee_border;
 mod kee_keys;
 mod kee_manager;
 mod kee_windows;
 mod tokenizer;
+mod win;
 use flume::{Receiver, Sender, unbounded};
 pub use kee_manager::TsckKeeManager;
 use parking_lot::{Mutex, RwLock};
 use std::sync::Arc;
+pub use win::api;
 mod macros;
 use crate::{beep::BeepController, kee_manager::Modifier};
 pub use kee_keys::{TKeePair, TKeePairList};
+pub use kee_manager::Modifier as KeeModifier;
 pub use kee_windows::list_windows;
-pub use kee_windows::{SafeHWND, WindowInfo, get_current_active_window};
+pub use kee_windows::{SafeHWND, WinPos, WinSize, WindowInfo, get_current_active_window};
 pub use tokenizer::lexer::{KeeFunc, KeeParser};
+pub use win::{AppInfo, AppPosition, AppSize};
 type EventHandler = Arc<dyn Fn(&Event) + Send + Sync + 'static>;
 pub use tokenizer::func_lexer::{Func, FuncExpr, FuncLexer};
 #[derive(Debug, Clone)]
 pub enum Event {
     Keys(String, String),
-    WindowChange(WindowInfo),
+    Modifier(Modifier, bool),
     Shutdown,
 }
 
 pub struct Kee {
     hotkey_manager: TsckKeeManager,
     sender: Sender<Event>,
+    enable_sound: bool,
     receiver: Receiver<Event>,
     handler: Option<EventHandler>,
     beep_controller: Option<Arc<Mutex<BeepController>>>,
@@ -32,11 +38,12 @@ pub struct Kee {
 }
 
 impl Kee {
-    pub fn new() -> Self {
+    pub fn new(enable_sound: bool) -> Self {
         let (tx, rx) = unbounded();
         Self {
             hotkey_manager: TsckKeeManager::new(),
             sender: tx,
+            enable_sound,
             receiver: rx,
             handler: None,
             beep_controller: BeepController::new().ok().map(|f| Arc::new(Mutex::new(f))),
@@ -62,6 +69,7 @@ impl Kee {
         let keys = self.current_keypairs.read();
         let keys = keys.iter().map(|kp| kp.key.as_str()).collect();
         let sender = self.sender.clone();
+        let sound_enable = self.enable_sound;
         self.hotkey_manager
             .register_hotkeys(keys, move |cb| match cb {
                 kee_manager::KeeEvent::OnKey(k) => {
@@ -71,7 +79,11 @@ impl Kee {
                     }
                 }
                 kee_manager::KeeEvent::OnModifier(modifier, state) => {
+                    _ = sender.send(Event::Modifier(modifier, state));
                     if modifier == Modifier::Win {
+                        if !sound_enable {
+                            return;
+                        }
                         if let Some(controller) = beep_controller.as_ref() {
                             let mut guard = controller.lock();
                             if state {
@@ -81,9 +93,6 @@ impl Kee {
                             }
                         }
                     }
-                }
-                kee_manager::KeeEvent::OnWindowChange(safe_window_info) => {
-                    _ = sender.send(Event::WindowChange(safe_window_info));
                 }
             })?;
 
@@ -101,6 +110,7 @@ impl Kee {
         let keys = self.current_keypairs.read();
         let keys = keys.iter().map(|kp| kp.key.as_str()).collect();
         let sender = self.sender.clone();
+        let sound_enable = self.enable_sound;
         self.hotkey_manager
             .update_hotkeys(keys, move |cb| match cb {
                 kee_manager::KeeEvent::OnKey(k) => {
@@ -110,7 +120,11 @@ impl Kee {
                     }
                 }
                 kee_manager::KeeEvent::OnModifier(modifier, state) => {
+                    _ = sender.send(Event::Modifier(modifier, state));
                     if modifier == Modifier::Win {
+                        if !sound_enable {
+                            return;
+                        }
                         if let Some(controller) = beep_controller.as_ref() {
                             let mut guard = controller.lock();
                             if state {
@@ -121,17 +135,14 @@ impl Kee {
                         }
                     }
                 }
-                kee_manager::KeeEvent::OnWindowChange(safe_window_info) => {
-                    _ = sender.send(Event::WindowChange(safe_window_info));
-                }
             })?;
         println!("Hotkeys updated successfully");
         Ok(())
     }
 
     pub fn run(&self, kees: Vec<TKeePair>) {
-        if let Err(_) = self.register_hotkeys(kees) {
-            panic!("Failed to registering hotkey");
+        if let Err(err) = self.register_hotkeys(kees) {
+            panic!("Failed to registering hotkey {}", err);
         }
 
         let receiver = self.receiver.clone();
@@ -170,6 +181,6 @@ impl Kee {
 
 impl Default for Kee {
     fn default() -> Self {
-        Self::new()
+        Self::new(false)
     }
 }

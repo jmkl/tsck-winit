@@ -9,7 +9,7 @@
   import ToggleNode from "./ToggleNode.svelte";
   import { GetAppsState } from "$lib/AppState.svelte";
   import { onMount } from "svelte";
-  import type { UserEvent } from "../../../../../@tsck/dist";
+  import type { UserEvent } from "@tsck/lib";
   import { invokePayload } from "$lib";
   const TEMPLATE = "LOCAL_FACERESTORE_TEMPLATE";
   let { onChange = null } = $props();

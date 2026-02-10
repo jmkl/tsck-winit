@@ -29,6 +29,7 @@
   let isSearching = $derived(searchQuery !== "");
   let rowIndex = $state(4);
   let imagePerPage = $derived(32);
+  let forceEnter = $state(0);
 
   const navigation = createNavigation<SmartObjectItem>(
     () => ({
@@ -48,6 +49,7 @@
       },
       onEnter: (item) => {
         appendSelection(item);
+        forceEnter++;
       },
       onCtrlEnter: () => {
         convertSelectedLayerToSmartObject();
@@ -209,6 +211,7 @@
   </div>
 
   <ImageGrid
+    {forceEnter}
     serverUrl={ctx.httpServerStaticUrl + "/smartobject"}
     appendSelected={appendSelection}
     files={pageFiles}

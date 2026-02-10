@@ -12,6 +12,7 @@ use crate::{
     store::config::{ToolbarPanel, WindowPosition, WindowSize},
     ts_struct,
     utils::animation::AnimationPayload,
+    workspace_manager::{WorkspaceEntry, WorkspacePayload},
 };
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -111,10 +112,9 @@ pub enum UserEvent {
     TransformWindow(AnimationPayload),
     SetIgnoreCursorEvent(bool),
     GoogleDownloadImage(String),
-    ActivateWorkSpace(i64),
     CyclePages(i32),
     GetActiveWindows,
-    IncomingWebsocketMessage(u64, String),
+    IncomingWebsocketMessage(u32, String),
     //PHOTOSHOP
     Template {
         template: Template,
@@ -179,6 +179,10 @@ pub enum UserEvent {
         #[serde(rename = "type")]
         msg_type: String,
     },
+
+    WorkspaceAppFocusChange(i32),
+    RequestWorkspacePayload,
+    WorkspaceSendPayload(WorkspacePayload),
 }
 ts_struct! {path = TS_PATH,
     #[serde(untagged)]
@@ -211,7 +215,7 @@ pub enum WsPayloadType {
     PushToWhatsapp,
     //- receive all textlayer top pos ---> plugin send it array of i32 -> PipRange: Vec<i32> PipRange(Vec<i32>)
     PipRanges, //- send tricolor data + piprange color:["#fff","#fff","#fff"],pipRanges:[0,2,3,4,5] PipNTriColor{colors:Vec<String>,pip_ranges:Vec<i32>}
-    RawFilterTextPipRange, //it return {textlaye,pipRanges,rawfiltertype}
+    RawFilterTextPipRange, //it return {textlayer,pipRanges,rawfiltertype}
     ExecuteScript,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
@@ -224,17 +228,4 @@ pub struct WsMessagePayload {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub channel: Option<String>,
-}
-
-ts_struct! {
-  path = TS_PATH,
-  (Default),
-  pub struct ReadableHotkee{
-    pub meta:bool,
-    pub alt:bool,
-    pub shift:bool,
-    pub ctrl:bool,
-    pub key:String,
-    pub func:String
-  }
 }

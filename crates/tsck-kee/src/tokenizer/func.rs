@@ -22,7 +22,16 @@ enum AppFunc {
     ToggleCompactMode,
     ToggleShadow,
 }
+#[derive(Debug, FuncParser)]
+enum TestFunc {
+    SomethingUseFull(String, String),
+    SomethingNone(i32),
+}
 
+#[derive(Debug, ScopeParser)]
+enum TestEntries {
+    App(TestFunc),
+}
 #[derive(Debug, ScopeParser)]
 enum FuncEntries {
     App(AppFunc),
@@ -36,10 +45,54 @@ mod kee_func {
     use anyhow::Context;
     use std::{str::FromStr, time::Instant};
 
-    use crate::tokenizer::{
-        func::{AppFunc, FuncEntries, WorkspaceFunc},
-        lexer::KeeParser,
+    use crate::{
+        FuncExpr, FuncLexer,
+        tokenizer::{
+            func::{AppFunc, FuncEntries, TestEntries, TestFunc, WorkspaceFunc},
+            lexer::KeeParser,
+        },
     };
+    #[test]
+    fn test_multi_enum() -> anyhow::Result<()> {
+        let input = r#"
+M-1 = app::SomethingUseFull(('Lhs', 'Rhs'))
+M-2 = app::SomethingNone(300)
+"#;
+        let lexer = KeeParser::new(input);
+        let kf = lexer.parse();
+        for input in kf {
+            if let Ok(entries) = TestEntries::parse(input.func) {
+                match entries {
+                    TestEntries::App(test_func) => match test_func {
+                        TestFunc::SomethingUseFull(a, b) => {
+                            println!("TestFunc::SomethingUseFull {} {}", a, b)
+                        }
+                        TestFunc::SomethingNone(a) => {
+                            println!("TestFunc::SomethingNone {}", a)
+                        }
+                    },
+                }
+            }
+        }
+        Ok(())
+    }
+    #[test]
+    fn test_multi_func() -> anyhow::Result<()> {
+        let inputs = [
+            "app::TupleStr(('IC','WIDTH'))",
+            "app::TupleNum(20,10)",
+            "app::Num(10)",
+            "app::Str('createNewDocument')",
+        ];
+        for input in inputs {
+            if let Some(et) = FuncLexer::parse_func(input) {
+                if let Some(FuncExpr::TupleString(a, b)) = et.args {
+                    eprintln!("TUPLESTR::: {}{}", a, b);
+                }
+            }
+        }
+        Ok(())
+    }
     #[test]
     fn test_lexer() -> anyhow::Result<()> {
         let input = include_str!("../../kee.kee");

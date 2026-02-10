@@ -108,11 +108,25 @@ pub fn derive_func_parser(input: TokenStream) -> TokenStream {
                                       .map(|v| #name::#variant_name(v))
                                       .map_err(|e| format!("Failed to parse {}: {:?}", #variant_str, e));
                               }
+                              // if let Some(FuncExpr::TupleString(a,b)) = &parsed.args {
+                              //     return Ok(#name::#variant_name(a.to_string(),b.to_string()));
+                              // }
                               return Err(format!("{} expects an identifier argument", #variant_str));
                           }
                       }
                   }
               }
+              Fields::Unnamed(fields) if fields.unnamed.len() == 2 => {
+                quote! {
+                  if parsed.func.eq_ignore_ascii_case(#variant_str) {
+                      if let Some(FuncExpr::TupleString(a,b)) = &parsed.args {
+                          return Ok(#name::#variant_name(a.to_string(),b.to_string()));
+                      }
+                      return Err(format!("{} expects a number argument", #variant_str));
+                  }
+                }
+              }
+
               _ => quote! {}
           }
       });

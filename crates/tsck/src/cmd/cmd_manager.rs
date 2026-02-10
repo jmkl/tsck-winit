@@ -1,3 +1,4 @@
+#![allow(unused)]
 use anyhow::{Context, Result};
 use flume::{Receiver, Sender, unbounded};
 use parking_lot::Mutex;

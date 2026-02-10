@@ -227,7 +227,7 @@ impl CmdrHelper {
             }
         }
     }
-    pub fn kill_all(&self) {
-        _ = self.process_manager.kill_all();
-    }
+    // pub fn kill_all(&self) {
+    //     _ = self.process_manager.kill_all();
+    // }
 }

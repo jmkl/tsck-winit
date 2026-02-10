@@ -1,9 +1,8 @@
 use crate::cmd::CommandConfig;
 use crate::event::TS_PATH;
 use crate::store::config::WindowSize;
-use crate::{DOTFILE_DIR, dp, log_error, ts_struct};
+use crate::{DOTFILE_DIR, ts_struct};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use ts_rs::TS;
 use tsck_kee::{KeeParser, TKeePair};
 use tsck_utils::ConfigStore;

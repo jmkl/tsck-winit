@@ -1,7 +1,4 @@
-use crate::{
-    kee_keys::TsckKeeBinding,
-    kee_windows::{WindowInfo, spawn_active_window_listener},
-};
+use crate::kee_keys::TsckKeeBinding;
 use parking_lot::Mutex;
 use std::{
     collections::HashMap,
@@ -19,7 +16,6 @@ use windows::Win32::{
 pub enum KeeEvent {
     OnKey(String),
     OnModifier(Modifier, bool),
-    OnWindowChange(WindowInfo),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,11 +85,7 @@ impl TsckKeeManager {
                     eprintln!("Failed to unhook keyboard hook: {:?}", e);
                 }
             });
-        let _ = std::thread::Builder::new()
-            .name("active-window-hook".to_string())
-            .spawn(|| {
-                spawn_active_window_listener();
-            });
+
         std::thread::sleep(std::time::Duration::from_millis(50));
         Self
     }
@@ -122,10 +114,10 @@ impl TsckKeeManager {
                 hotkeys_map
                     .hotkey_names
                     .insert((tk, flags), hotkey_str.clone());
-                println!(
-                    "Registered:{} (TK=0x{:02X}, mods=0x{:04X})",
-                    hotkey_str, tk, flags
-                );
+                // println!(
+                //     "Registered:{} (TK=0x{:02X}, mods=0x{:04X})",
+                //     hotkey_str, tk, flags
+                // );
             }
         }
         {

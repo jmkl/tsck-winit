@@ -1,6 +1,6 @@
 use anyhow::Result;
 use rust_embed_for_web::EmbedableFile;
-use std::{borrow::Cow, os::windows::process::CommandExt, sync::Arc};
+use std::{borrow::Cow, os::windows::process::CommandExt};
 use wry::WebViewBuilder;
 use wry::{
     NewWindowFeatures, NewWindowResponse,
