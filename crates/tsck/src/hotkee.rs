@@ -547,6 +547,11 @@ pub fn __spawn_hotkee(
                                     // sender!(arc_channel_bus, ActivateWorkSpace, index as i32);
                                     // proxy.wake_up();
                                 }
+                                {
+                                    // let index = { arc_winops_handler.lock().next_workspace() };
+                                    // sender!(arc_channel_bus, ActivateWorkSpace, index as i32);
+                                    // proxy.wake_up();
+                                }
                             }
                             WorkspaceFunc::CycleActiveWindowPos => {
                                 {
