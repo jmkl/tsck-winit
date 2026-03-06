@@ -3,12 +3,12 @@ use std::{str::FromStr, sync::Arc, time::Instant};
 
 use crate::event::ChannelEvent;
 use crate::utils::animation::{AnimationEasing, map_value};
+use crate::workspace_manager;
 use crate::{app_config::AppConfigHandler, event::UserEvent};
-use crate::{dp, log_debug};
 use flume::Sender;
 use parking_lot::Mutex;
 use tsck_derive::{FuncParser, ScopeParser};
-use tsck_kee::{Event, Kee, SafeHWND, TKeePair, WinPos, WindowInfo, list_windows};
+use tsck_kee::{AppInfo, AppPosition, Event, Kee, SafeHWND, TKeePair};
 use tsck_kee::{Func, FuncExpr, FuncLexer};
 use winit::event_loop::EventLoopProxy;
 
@@ -20,7 +20,7 @@ enum WorkspaceFunc {
     CycleActiveWindowWidth,
     CycleActiveWindowPos,
     MoveActiveWindowToWorkspace,
-    CycleWorkspace,
+    CycleWorkspace(String),
     WorkspaceTest,
 }
 
@@ -45,7 +45,7 @@ enum FuncEntries {
     App(AppFunc),
     Workspace(WorkspaceFunc),
 }
-
+#[macro_export]
 macro_rules! sender {
     ($channel_bus:ident,$page:ident  ) => {
         _ = $channel_bus.send((UserEvent::$page , None, None));
@@ -55,6 +55,10 @@ macro_rules! sender {
     };
     ($channel_bus:ident,$page:ident,$arg:expr) => {
         _ = $channel_bus.send((UserEvent::$page($arg), None, None));
+    };
+    ($channel_bus:ident,$page:ident,$arg:expr,$proxy:expr) => {
+        _ = $channel_bus.send((UserEvent::$page($arg), None, None));
+        $proxy.wake_up();
     };
 
 }
@@ -91,9 +95,8 @@ mod window_animation {
 struct WorkspaceWindows {
     id: String,
     hwnd: SafeHWND,
-    window: WindowInfo,
     workspace: usize,
-    real_position: WinPos,
+    real_position: AppPosition,
 }
 
 enum SearchMode {
@@ -102,13 +105,12 @@ enum SearchMode {
 }
 
 #[allow(unused)]
-struct WindowOpsHandler {
+struct WinOpsHandler {
     config_handler: AppConfigHandler,
     apps: Vec<String>,
     workspaces_apps: Vec<String>,
     active_index: usize,
     active_workspace: usize,
-    active_window: Option<WindowInfo>,
     ws_windows: Vec<WorkspaceWindows>,
 }
 macro_rules! cycle_value {
@@ -117,7 +119,7 @@ macro_rules! cycle_value {
     };
 }
 static WORKSPACE_LENGTH: usize = 3;
-impl WindowOpsHandler {
+impl WinOpsHandler {
     pub fn new() -> Self {
         let config_handler = AppConfigHandler::new();
         let apps = config_handler.apps();
@@ -128,7 +130,6 @@ impl WindowOpsHandler {
             workspaces_apps,
             active_index: 0,
             active_workspace: 0,
-            active_window: None,
             ws_windows: Vec::new(),
         }
     }
@@ -137,75 +138,88 @@ impl WindowOpsHandler {
         sender: Sender<ChannelEvent>,
         proxy: Arc<EventLoopProxy>,
     ) {
-        if let Some(active_window) = self.active_window.as_ref() {
-            if self
-                .workspaces_apps
-                .contains(&active_window.name().to_uppercase())
-            {
-                if let Some(window) = self
-                    .ws_windows
-                    .iter_mut()
-                    .find(|ws| ws.id == active_window.name())
-                {
-                    if window.workspace == self.active_workspace {
-                        window.real_position = active_window.position().clone();
-                    }
-                    log_debug!(dp!(window.real_position));
-                    window.workspace = (window.workspace + 1) % WORKSPACE_LENGTH;
-                    _ = active_window.move_to(
-                        window.real_position.x,
-                        window.real_position.y - (window.workspace as i32 * 1440),
-                    );
+        workspace_manager(|ws| {
+            if let Some(active_window) = ws.get_active_app() {
+                if ws.count_workspace() < 3 {
+                    ws.add_new_workspace();
                 }
+                ws.move_app_to_workspace(&active_window);
+                sender!(
+                    sender,
+                    WorkspaceSendPayload,
+                    ws.get_workspace_payload(),
+                    proxy
+                );
             }
-        }
-        // self.ws_windows.iter().for_each(|w| {
-        //     println!(
-        //         "{:<10} =>x:{} y:{}, w:{}",
-        //         w.id, w.real_position.x, w.real_position.y, w.workspace
-        //     );
-        // });
-        // cycle_value!(self.active_workspace, WORKSPACE_LENGTH);
+        });
+        // if self
+        //     .workspaces_apps
+        //     .contains(&active_window.exe.to_uppercase())
+        // {
+        //     if let Some(window) = self
+        //         .ws_windows
+        //         .iter_mut()
+        //         .find(|ws| ws.id == active_window.exe)
+        //     {
+        //         if window.workspace == self.active_workspace {
+        //             window.real_position = active_window.position.clone();
+        //         }
+        //         log_debug!(dp!(window.real_position));
+        //         window.workspace = (window.workspace + 1) % WORKSPACE_LENGTH;
+        //         _ = active_window.move_to(
+        //             window.real_position.x,
+        //             window.real_position.y - (window.workspace as i32 * 1440),
+        //         );
+        //     }
+        // }
     }
     pub fn cycle_workspace(&mut self, sender: Sender<ChannelEvent>, proxy: Arc<EventLoopProxy>) {
-        cycle_value!(self.active_workspace, WORKSPACE_LENGTH);
-        self.ws_windows.iter().for_each(|w| {
-            if self.active_workspace == w.workspace {
-                _ = w.window.move_to(w.real_position.x, w.real_position.y);
-            } else {
-                _ = w
-                    .window
-                    .move_to(w.real_position.x, w.real_position.y - 1440);
-            }
+        workspace_manager(|ws| {
+            ws.focus_next_app();
+            // let active_workspace = ws.switch_to_next_workspace();
+            sender!(
+                sender,
+                WorkspaceSendPayload,
+                ws.get_workspace_payload(),
+                proxy
+            );
         });
-        sender!(sender, ActivateWorkSpace, self.active_workspace as i32);
-        proxy.wake_up();
+        // cycle_value!(self.active_workspace, WORKSPACE_LENGTH);
+        // self.ws_windows.iter().for_each(|w| {
+        //     if self.active_workspace == w.workspace {
+        //         _ = w.window.move_to(w.real_position.x, w.real_position.y);
+        //     } else {
+        //         _ = w
+        //             .window
+        //             .move_to(w.real_position.x, w.real_position.y - 1440);
+        //     }
+        // });
     }
-    pub fn update_workspaces_app(&mut self, window_info: &WindowInfo) {
-        let windows = list_windows();
-        if let Some(w) = windows.iter().find(|w| w.hwnd == window_info.hwnd) {
-            self.active_window = Some(w.clone());
-        }
-        windows.iter().for_each(|w| {
-            if self.workspaces_apps.contains(&w.name().to_uppercase()) {
-                match self.ws_windows.iter_mut().find(|ws| ws.id == w.name()) {
-                    Some(window) => {
-                        if window.workspace == self.active_workspace {
-                            window.real_position = w.position().clone();
-                        }
-                    }
-                    None => {
-                        self.ws_windows.push(WorkspaceWindows {
-                            id: w.name(),
-                            hwnd: w.hwnd,
-                            window: w.clone(),
-                            workspace: self.active_workspace,
-                            real_position: w.position().clone(),
-                        });
-                    }
-                }
-            }
-        });
+    pub fn update_workspaces_app(&mut self, window_info: &AppInfo) {
+        // let windows = list_windows();
+        // if let Some(w) = windows.iter().find(|w| w.hwnd == window_info.hwnd) {
+        //     self.active_window = Some(w.clone());
+        // }
+        // windows.iter().for_each(|w| {
+        //     if self.workspaces_apps.contains(&w.name().to_uppercase()) {
+        //         match self.ws_windows.iter_mut().find(|ws| ws.id == w.name()) {
+        //             Some(window) => {
+        //                 if window.workspace == self.active_workspace {
+        //                     window.real_position = w.position().clone();
+        //                 }
+        //             }
+        //             None => {
+        //                 self.ws_windows.push(WorkspaceWindows {
+        //                     id: w.name(),
+        //                     hwnd: w.hwnd,
+        //                     window: w.clone(),
+        //                     workspace: self.active_workspace,
+        //                     real_position: w.position().clone(),
+        //                 });
+        //             }
+        //         }
+        //     }
+        // });
     }
     pub fn update_apps(&mut self) {
         self.config_handler = AppConfigHandler::new();
@@ -231,30 +245,27 @@ impl WindowOpsHandler {
     //     self.active_workspace = (self.active_workspace + 1) % 3;
     //     self.active_workspace
     // }
-    pub fn set_active_window(&mut self, window_info: WindowInfo) {
-        self.active_window = Some(window_info);
-    }
-    pub fn get_active_window(&self) -> &Option<WindowInfo> {
-        &self.active_window
-    }
+
     pub fn get_app(&self, index: usize) -> Option<&String> {
         self.apps.get(index)
     }
-    fn cycle_move_active_app(&mut self, window: &WindowInfo) {
+    fn cycle_move_active_app(&mut self, app: &AppInfo) {
         if self
             .workspaces_apps
             .iter()
-            .find(|w| window.name().to_uppercase() == w.to_uppercase())
+            .find(|w| app.exe.to_uppercase() == w.to_uppercase())
             .is_some()
         {
             cycle_value!(self.active_workspace, WORKSPACE_LENGTH);
             let active_workspace = self.active_workspace as i32;
             //zed -8 -8 (2576, 1408)
             let monitor = 2576 / 3;
-            _ = window.move_to(-8 + (monitor * active_workspace), -8);
+            _ = tsck_kee::api::app_move_to(app, -8 + (monitor * active_workspace), -8);
         }
     }
     fn arrange_window_on_workspace(&self) {
+        //TODO must retrieve workspace from the api and update accordingly
+        let workspace = 0;
         let count = self
             .ws_windows
             .iter()
@@ -264,19 +275,15 @@ impl WindowOpsHandler {
             //zed -8 -8 (2576, 1408)
             let width = 2576 / count;
             let height = 1408;
-            for (i, w) in self.ws_windows.iter().enumerate() {
-                _ = w.window.resize(width as i32, height);
-                _ = w.window.move_to((width * i) as i32, 0);
+            for w in tsck_kee::api::app_get_all() {
+                _ = tsck_kee::api::app_resize(&w, width as i32, height);
+                _ = tsck_kee::api::app_move_to(&w, (width * workspace) as i32, 0);
             }
         }
     }
-    fn cycle_resize_active_app(&mut self, window: &WindowInfo) {
-        if self
-            .workspaces_apps
-            .iter()
-            .find(|w| window.name().to_uppercase() == w.to_uppercase())
-            .is_some()
-        {
+    fn cycle_resize_active_app(&mut self, window: &AppInfo) {
+        let whitelist = true;
+        if whitelist {
             cycle_value!(self.active_workspace, WORKSPACE_LENGTH);
             let active_workspace = self.active_workspace as i32;
             let monitor = (2576, 1408);
@@ -286,16 +293,16 @@ impl WindowOpsHandler {
             // log_debug!(window.name(), dp!(window.size()), dp!(window.position()));
             match active_workspace {
                 0 => {
-                    _ = window.resize(monitor.0 / 3, monitor.1);
-                    _ = window.move_to(-8, -8);
+                    _ = tsck_kee::api::app_resize(window, monitor.0 / 3, monitor.1);
+                    _ = tsck_kee::api::app_move_to(window, -8, -8);
                 }
                 1 => {
-                    _ = window.resize(monitor.0 / 2, monitor.1);
-                    _ = window.move_to(-8, -8);
+                    _ = tsck_kee::api::app_resize(window, monitor.0 / 2, monitor.1);
+                    _ = tsck_kee::api::app_move_to(window, -8, -8);
                 }
                 2 => {
-                    _ = window.resize(monitor.0, monitor.1);
-                    _ = window.move_to(-8, -8);
+                    _ = tsck_kee::api::app_resize(window, monitor.0, monitor.1);
+                    _ = tsck_kee::api::app_move_to(window, -8, -8);
                 }
                 _ => {}
             }
@@ -315,16 +322,16 @@ impl WindowOps {
         }
     }
 
-    fn move_active_window(to: &str, hwnd: &SafeHWND) {
+    fn move_active_app(to: &str) {
         if window_animation::is_running() {
             return;
         }
+
         let to = to.to_string();
-        let hwnd = hwnd.clone();
         std::thread::spawn(move || {
             let inc = AppConfigHandler::new().move_increment();
-            if let Some(w) = list_windows().iter().find(|w| &w.hwnd == &hwnd) {
-                let (wx, wy) = (w.position().x, w.position().y);
+            if let Some(w) = tsck_kee::api::app_get_active() {
+                let (wx, wy) = (w.position.x, w.position.y);
 
                 let (a, b) = match_ignore_case!(&to,
                       else : (wx,wy),
@@ -334,8 +341,8 @@ impl WindowOps {
                       "DOWN"  => (wx, wy + inc),
                 );
                 // _ = w.move_to(a, b);
-                WindowOps::animate_window(
-                    w,
+                WindowOps::animate_app(
+                    &w,
                     Some((a, b)),
                     None,
                     150,
@@ -344,13 +351,19 @@ impl WindowOps {
             }
         });
     }
-
-    fn resize_active_window(prop: &str, increment: bool, hwnd: &SafeHWND) {
+    fn cycle_active_app_width(arc_channel_bus: Sender<ChannelEvent>, proxy: Arc<EventLoopProxy>) {
+        workspace_manager(|wm| {
+            if let Some(active_app) = wm.get_active_app() {
+                let index = 0;
+                sender!(arc_channel_bus, WorkspaceAppFocusChange, index as i32);
+            }
+        });
+    }
+    fn resize_active_app(prop: &str, increment: bool) {
         if window_animation::is_running() {
             return;
         }
         let prop = prop.to_string();
-        let hwnd = hwnd.clone();
         std::thread::spawn(move || {
             let inc = {
                 let increment_value = AppConfigHandler::new().move_increment();
@@ -360,33 +373,34 @@ impl WindowOps {
                     -increment_value
                 }
             };
-            if let Some(w) = list_windows().iter().find(|w| &w.hwnd == &hwnd) {
-                let (width, height) = (w.size().width, w.size().height);
+            if let Some(w) = tsck_kee::api::app_get_active() {
+                let (width, height) = (w.size.width, w.size.height);
                 let (a, b) = match_ignore_case!(&prop,
                     else: (width, height),
                     "WIDTH" => (width + inc, height),
                     "HEIGHT" => (width, height + inc),
                 );
-                // _ = w.resize(a, b);
-                WindowOps::animate_window(
-                    w,
-                    None,
-                    Some((a, b)),
-                    150,
-                    AnimationEasing::EaseInOutCubic,
-                );
+                _ = tsck_kee::api::app_resize(&w, a, b);
+                window_animation::animate_done();
+                // WindowOps::animate_window(
+                //     &w,
+                //     None,
+                //     Some((a, b)),
+                //     150,
+                //     AnimationEasing::EaseInOutCubic,
+                // );
             }
         });
     }
-    fn animate_window(
-        ws: &WindowInfo,
+    fn animate_app(
+        ws: &AppInfo,
         to_pos: Option<(i32, i32)>,
         to_size: Option<(i32, i32)>,
         duration: u64,
         easing: AnimationEasing,
     ) {
-        let pos = ws.position();
-        let size = ws.size();
+        let pos = ws.position.clone();
+        let size = ws.size.clone();
         let to_pos = to_pos.unwrap_or((pos.x, pos.y));
         let to_size = to_size.unwrap_or((size.width as i32, size.height as i32));
         let start_time = Instant::now();
@@ -402,7 +416,7 @@ impl WindowOps {
             // Only call the operations that are actually changing
             if to_pos != (pos.x, pos.y) {
                 let new_pos = map_value((pos.x, pos.y), (to_pos.0, to_pos.1), eased_t);
-                _ = ws.move_to(new_pos.0 as i32, new_pos.1 as i32);
+                _ = tsck_kee::api::app_move_to(ws, new_pos.0 as i32, new_pos.1 as i32);
             }
 
             if to_size != (size.width as i32, size.height as i32) {
@@ -411,7 +425,7 @@ impl WindowOps {
                     (to_size.0, to_size.1),
                     eased_t,
                 );
-                _ = ws.resize(new_size.0 as i32, new_size.1 as i32);
+                _ = tsck_kee::api::app_resize(ws, new_size.0 as i32, new_size.1 as i32);
             }
 
             // Sleep only for remaining frame time
@@ -420,24 +434,9 @@ impl WindowOps {
                 std::thread::sleep(FRAME_TIME - elapsed);
             }
         }
-        // while start_time.elapsed() < duration {
-        //     let t = start_time.elapsed().as_secs_f64() / duration.as_secs_f64();
-        //     let eased_t = easing.evaluate(t.min(1.0));
 
-        //     let new_pos = map_value((pos.x, pos.y), (to_pos.0, to_pos.1), eased_t);
-        //     let new_size = map_value(
-        //         (size.width as i32, size.height as i32),
-        //         (to_size.0, to_size.1),
-        //         eased_t,
-        //     );
-
-        //     _ = ws.move_to(new_pos.0 as i32, new_pos.1 as i32);
-        //     _ = ws.resize(new_size.0 as i32, new_size.1 as i32);
-
-        //     std::thread::sleep(FRAME_TIME);
-        // }
-        _ = ws.move_to(to_pos.0 as i32, to_pos.1 as i32);
-        _ = ws.resize(to_size.0 as i32, to_size.1 as i32);
+        _ = tsck_kee::api::app_move_to(ws, to_pos.0 as i32, to_pos.1 as i32);
+        _ = tsck_kee::api::app_resize(ws, to_size.0 as i32, to_size.1 as i32);
         window_animation::animate_done();
     }
 }
@@ -448,11 +447,20 @@ pub fn __spawn_hotkee(
 ) -> anyhow::Result<()> {
     let config = AppConfigHandler::new();
     let kees: Vec<TKeePair> = config.get_tkee_pair();
-    let winops_handler = Arc::new(Mutex::new(WindowOpsHandler::new()));
-    let kee = Arc::new(Mutex::new(Kee::new()));
+    let winops_handler = Arc::new(Mutex::new(WinOpsHandler::new()));
+    let kee = Arc::new(Mutex::new(Kee::new(true)));
     let arc_channel_bus = sender.clone();
     let arc_kee = kee.clone();
     let arc_winops_handler = winops_handler.clone();
+
+    //instantiate workspace ui
+    workspace_manager(|wm| {
+        sender!(
+            arc_channel_bus,
+            WorkspaceSendPayload,
+            wm.get_workspace_payload()
+        );
+    });
 
     kee.lock()
         .on_message(move |event| match event {
@@ -512,43 +520,32 @@ pub fn __spawn_hotkee(
                         },
                         FuncEntries::Workspace(func) => match func {
                             WorkspaceFunc::Activate(page) => {
-                                sender!(arc_channel_bus, ActivateWorkSpace, page);
+                                workspace_manager(|wm| {
+                                    sender!(
+                                        arc_channel_bus,
+                                        WorkspaceSendPayload,
+                                        wm.get_workspace_payload()
+                                    );
+                                });
                             }
                             WorkspaceFunc::MoveActiveWindow(to) => {
-                                let clone_apps = arc_winops_handler.clone();
-                                {
-                                    if let Some(w) = clone_apps.lock().get_active_window() {
-                                        WindowOps::move_active_window(&to, &w.hwnd);
-                                    }
-                                }
+                                WindowOps::move_active_app(&to);
                             }
                             WorkspaceFunc::ResizeActiveWindow(inc, prop) => {
-                                let increment = match inc.to_uppercase().as_str() {
-                                    "INC" => true,
-                                    _ => false,
-                                };
-                                let clone_apps = arc_winops_handler.clone();
-                                {
-                                    if let Some(w) = clone_apps.lock().get_active_window() {
-                                        WindowOps::resize_active_window(&prop, increment, &w.hwnd);
-                                    }
-                                }
+                                let increment = inc.to_uppercase().as_str() == "INC";
+                                WindowOps::resize_active_app(&prop, increment)
                             }
                             WorkspaceFunc::CycleActiveWindowWidth => {
                                 {
-                                    let active_window = {
-                                        let g = arc_winops_handler.lock();
-                                        g.get_active_window().clone()
-                                    };
-                                    // let mut guard = { arc_winops_handler.lock() };
-                                    if let Some(active_window) = active_window {
-                                        if let Some(w) = list_windows()
-                                            .iter()
-                                            .find(|w| w.name() == active_window.name())
-                                        {
-                                            arc_winops_handler.lock().cycle_move_active_app(w);
-                                        }
-                                    }
+                                    WindowOps::cycle_active_app_width(
+                                        arc_channel_bus.clone(),
+                                        proxy.clone(),
+                                    );
+                                }
+                                {
+                                    // let index = { arc_winops_handler.lock().next_workspace() };
+                                    // sender!(arc_channel_bus, ActivateWorkSpace, index as i32);
+                                    // proxy.wake_up();
                                 }
                                 {
                                     // let index = { arc_winops_handler.lock().next_workspace() };
@@ -558,48 +555,51 @@ pub fn __spawn_hotkee(
                             }
                             WorkspaceFunc::CycleActiveWindowPos => {
                                 {
-                                    let active_window = {
-                                        let g = arc_winops_handler.lock();
-                                        g.get_active_window().clone()
-                                    };
-                                    // let mut guard = { arc_winops_handler.lock() };
-                                    if let Some(active_window) = active_window {
-                                        if let Some(w) = list_windows()
-                                            .iter()
-                                            .find(|w| w.name() == active_window.name())
-                                        {
-                                            arc_winops_handler.lock().cycle_resize_active_app(w);
-                                        }
-                                    }
-                                }
-                                {
+                                    WindowOps::cycle_active_app_width(
+                                        arc_channel_bus.clone(),
+                                        proxy.clone(),
+                                    );
                                     // let index = { arc_winops_handler.lock().next_workspace() };
                                     // sender!(arc_channel_bus, ActivateWorkSpace, index as i32);
                                     // proxy.wake_up();
                                 }
                             }
-                            WorkspaceFunc::CycleWorkspace => {
-                                arc_winops_handler
-                                    .lock()
-                                    .cycle_workspace(arc_channel_bus.clone(), proxy.clone());
+                            WorkspaceFunc::CycleWorkspace(direction) => {
+                                workspace_manager(|ws| {
+                                    match direction.as_str() {
+                                        "next" => {
+                                            ws.focus_next_app();
+                                        }
+                                        "prev" => {
+                                            ws.focus_prev_app();
+                                        }
+                                        _ => {}
+                                    }
+
+                                    sender!(
+                                        sender,
+                                        WorkspaceSendPayload,
+                                        ws.get_workspace_payload(),
+                                        proxy
+                                    );
+                                });
                             }
                             WorkspaceFunc::MoveActiveWindowToWorkspace => {
+                                workspace_manager(|wm| if let Some(app) = wm.get_active_app() {});
+
                                 arc_winops_handler.lock().move_active_window_to_workspace(
                                     arc_channel_bus.clone(),
                                     proxy.clone(),
                                 );
                             }
-                            WorkspaceFunc::WorkspaceTest => todo!(),
+                            WorkspaceFunc::WorkspaceTest => {
+                                tsck_kee::api::maximize_window();
+                            }
                         },
                     }
                 }
             }
-            Event::WindowChange(safe_window_info) => {
-                let clone_apps = arc_winops_handler.clone();
-                {
-                    clone_apps.lock().update_workspaces_app(safe_window_info);
-                }
-            }
+
             _ => {}
         })
         .run(kees);

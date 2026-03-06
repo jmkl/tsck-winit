@@ -1,22 +1,22 @@
-use crate::event::{
-    EventPayload, UserEvent, WinLevel, WindowInfoExt, WsMessagePayload, WsPayloadContent,
-};
+use crate::event::{EventPayload, UserEvent, WinLevel, WsMessagePayload, WsPayloadContent};
 use crate::ipc::{IpcHelper, IpcRequest, IpcResponse};
 use crate::photoshop::customscripts::CustomScripts;
 use crate::protocol::setup_custom_protocol;
-use crate::store::config::{ConfigParser, PluginConf, WindowPosition, WindowSize, WindowSrc};
+use crate::store::config::{ConfigParser, PluginConf, WindowSrc};
 use crate::utils::animation::map_value;
 use crate::utils::download::dl_image;
 use crate::utils::img::load_icon;
 use crate::utils::url_encode;
 use crate::utils::winview_util::webview_bounds;
 use crate::utils::youtubeapi::YoutubeApi;
-use crate::{ChannelBus, WindowState, dp, log_debug, log_error, log_warn, response_success};
+use crate::{
+    ChannelBus, WindowState, dp, log_debug, log_error, log_warn, response_success,
+    workspace_manager,
+};
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tsck_kee::list_windows;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::ActiveEventLoop;
@@ -94,7 +94,7 @@ impl TsckApp {
                 UE::ReloadConfig => {
                     self.reload_config();
                 }
-                UE::ActivateWorkSpace(_) => {
+                UE::WorkspaceSendPayload(_) => {
                     get_window_by_label!(self, "workspace", |ws| {
                         if let Ok(payload) =
                             IpcHelper::compile(EventPayload::FrontEnd.to_string(), cmd)
@@ -118,18 +118,19 @@ impl TsckApp {
                 UE::GetActiveWindows => {
                     get_window!(self, window_id, |ws| {
                         request.map(|req| -> anyhow::Result<()> {
-                            let apps: Vec<WindowInfoExt> = list_windows()
-                                .iter()
-                                .map(|w| WindowInfoExt {
-                                    title: w.title(),
-                                    exe: w.name(),
-                                    class: w.class().to_string(),
-                                    size: WindowSize::new(w.size().width, w.size().height),
-                                    position: WindowPosition::new(w.position().x, w.position().y),
-                                    workspace: w.workspace(),
-                                })
-                                .collect();
-                            response_success!(ws.webview, req, apps);
+                            // let apps: Vec<WindowInfoExt> = list_windows()
+                            //     .iter()
+                            //     .map(|w| WindowInfoExt {
+                            //         title: w.title(),
+                            //         exe: w.name(),
+                            //         class: w.class().to_string(),
+                            //         size: WindowSize::new(w.size().width, w.size().height),
+                            //         position: WindowPosition::new(w.position().x, w.position().y),
+                            //         workspace: w.workspace(),
+                            //     })
+                            //     .collect();
+                            response_success!(ws.webview, req, false);
+                            log_error!("UNIMPLEMENTED");
                             Ok(())
                         });
                     });
@@ -561,6 +562,28 @@ impl TsckApp {
                 UserEvent::FocusWindow(label) => {
                     get_window_by_label!(self, label, |ws| {
                         ws.window.focus_window();
+                    });
+                }
+                UserEvent::WorkspaceAppFocusChange(i32) => {
+                    get_window_by_label!(self, "workspace", |ws| {
+                        if let Ok(payload) =
+                            IpcHelper::compile(EventPayload::FrontEnd.to_string(), cmd)
+                        {
+                            _ = ws.webview.evaluate_script(&payload);
+                        }
+                    });
+                }
+                UserEvent::RequestWorkspacePayload => {
+                    get_window_by_label!(self, "workspace", |ws| {
+                        request.map(|req| {
+                            workspace_manager(|wm| {
+                                let payload = wm.get_workspace_payload();
+                                let response = IpcResponse::success(req.id, payload);
+                                _ = ws
+                                    .webview
+                                    .evaluate_script(&req.to_response_success(response));
+                            });
+                        });
                     });
                 }
 

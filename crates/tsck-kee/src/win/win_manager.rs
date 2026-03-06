@@ -17,6 +17,7 @@ pub enum WindowManagerEvent {
     Raise(Window),
     TitleUpdate(WinEvent, Window),
     Create(WinEvent, Window),
+    LocationChange(WinEvent, Window),
 }
 impl WindowManagerEvent {
     pub const fn window(self) -> Window {
@@ -36,6 +37,7 @@ impl WindowManagerEvent {
             | Self::Unmanage(window)
             | Self::Create(_, window)
             | Self::TitleUpdate(_, window) => window,
+            Self::LocationChange(_, window) => window,
         }
     }
     pub const fn hwnd(self) -> isize {
@@ -59,6 +61,7 @@ impl WindowManagerEvent {
             WindowManagerEvent::Raise(_) => "Raise",
             WindowManagerEvent::TitleUpdate(_, _) => "TitleUpdate",
             WindowManagerEvent::Create(_, _) => "Create",
+            WindowManagerEvent::LocationChange(_, _) => "LocationChange",
         }
     }
 
@@ -75,6 +78,7 @@ impl WindowManagerEvent {
             | WindowManagerEvent::MoveResizeEnd(event, _)
             | WindowManagerEvent::MouseCapture(event, _)
             | WindowManagerEvent::Create(event, _)
+            | WindowManagerEvent::LocationChange(event, _)
             | WindowManagerEvent::TitleUpdate(event, _) => Some(event.to_string()),
             WindowManagerEvent::Manage(_)
             | WindowManagerEvent::Unmanage(_)
@@ -105,6 +109,7 @@ impl WindowManagerEvent {
             WinEvent::SystemCaptureStart | WinEvent::SystemCaptureEnd => {
                 Option::from(Self::MouseCapture(winevent, window))
             }
+            WinEvent::ObjectLocationChange => Option::from(Self::LocationChange(winevent, window)),
             WinEvent::ObjectNameChange => {
                 // Some apps like Firefox don't send ObjectCreate or ObjectShow on launch
                 // This spams the message queue, but I don't know what else to do. On launch
@@ -189,6 +194,9 @@ impl std::fmt::Display for WindowManagerEvent {
                 format!("\x1b[31m[{}]\x1b[0m {}", win_event, window)
             }
             WindowManagerEvent::Create(win_event, window) => {
+                format!("\x1b[31m[{}]\x1b[0m {}", win_event, window)
+            }
+            WindowManagerEvent::LocationChange(win_event, window) => {
                 format!("\x1b[31m[{}]\x1b[0m {}", win_event, window)
             }
             WindowManagerEvent::Manage(window) => format!("{}", window),

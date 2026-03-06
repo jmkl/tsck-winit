@@ -15,7 +15,11 @@ impl TKeePair {
             func: func.into(),
         }
     }
+    pub fn print(&self) -> String {
+        format!("{:<15} {}", self.key, self.func)
+    }
 }
+
 // Custom deserialization from map format to Vec<TKeePair>
 impl<'de> Deserialize<'de> for TKeePair {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -415,14 +419,14 @@ impl TsckKeeBinding {
             b"backquote" | b"`" => Ok(TKey::BackQuote),
             b"minus" => Ok(TKey::Minus),
             b"equal" | b"=" => Ok(TKey::Equal),
-            b"[" => Ok(TKey::LeftBracket),
-            b"]" => Ok(TKey::RightBracket),
-            b"\\" => Ok(TKey::BackSlash),
+            b"[" | b"leftbracket" => Ok(TKey::LeftBracket),
+            b"]" | b"rightbracket" => Ok(TKey::RightBracket),
+            b"\\" | b"backslash" => Ok(TKey::BackSlash),
             b"intlbackslash" => Ok(TKey::IntlBackslash),
-            b";" => Ok(TKey::SemiColon),
-            b"'" => Ok(TKey::Quote),
-            b"," => Ok(TKey::Comma),
-            b"." => Ok(TKey::Dot),
+            b";" | b"semicolon" => Ok(TKey::SemiColon),
+            b"'" | b"quote" => Ok(TKey::Quote),
+            b"," | b"comma" => Ok(TKey::Comma),
+            b"." | b"dot" => Ok(TKey::Dot),
             b"/" | b"slash" => Ok(TKey::Slash),
             // Media
             b"volumeup" => Ok(TKey::VolumeUp),

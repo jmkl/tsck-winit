@@ -14,6 +14,7 @@
           "width": 320,
           "height": 200
         },
+
         "window_position": {
           "x": 1800,
           "y": 1150
@@ -27,13 +28,13 @@
       "window": {
         "decorations": false,
         "always_on_top": true,
-        "auto_launch": true,
+        "auto_launch": false,
         "skip_taskbar": true,
         "receive_cursor_event": false,
         "shadow": false,
         "window_src": { "Local": "/Workspace" },
         "window_size": {
-          "width": 400,
+          "width": 2500,
           "height": 40
         },
         "window_position": {

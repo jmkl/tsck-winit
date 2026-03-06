@@ -7,6 +7,7 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
+    ffi::c_void,
     fmt::Write,
     sync::OnceLock,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -22,21 +23,101 @@ use windows::{
     core::BOOL,
 };
 
-use crate::win::{
-    win_api::{self},
-    win_event::WinEvent,
-    win_manager::WindowManagerEvent,
+use crate::{
+    kee_border::{
+        create_transparent_border, get_dwm_border_rect, update_border_color,
+        update_border_corner_radius, update_border_rect, update_border_thickness,
+    },
+    win::{
+        self,
+        win_api::{self},
+        win_event::WinEvent,
+        win_manager::WindowManagerEvent,
+    },
 };
 
 lazy_static! {
-    static ref BORDER_STATE: Mutex<HashMap<String, Box<Border>>> = Mutex::new(HashMap::new());
-    static ref WINDOWS_BORDERS: Mutex<HashMap<isize, String>> = Mutex::new(HashMap::new());
+    pub static ref BORDER_MANAGER: Mutex<BorderManager> = Mutex::new(BorderManager::new());
     static ref APP_INFO_LIST: Mutex<HashMap<isize, AppInfo>> = Mutex::new(HashMap::new());
     static ref EVENTS: Mutex<Vec<String>> = Mutex::new(Vec::new());
     static ref APP_WHITELIST: Mutex<Vec<&'static str>> = Mutex::new(Vec::new());
 }
 pub static CHANNEL: OnceLock<(Sender<WindowManagerEvent>, Receiver<WindowManagerEvent>)> =
     OnceLock::new();
+
+macro_rules! hwnd {
+    ($self:expr) => {
+        windows::Win32::Foundation::HWND($self as *mut std::ffi::c_void)
+    };
+}
+macro_rules! is_hwnd {
+    ($self:expr, |$yes:ident| $block:block) => {
+        if let Some(hwnd) = $self.hwnd {
+            let $yes = hwnd!(hwnd);
+            $block
+        }
+    };
+}
+pub struct BorderManager {
+    instance: bool,
+    hwnd: Option<isize>,
+    border: f32,
+    corner_radius: f32,
+}
+
+impl BorderManager {
+    pub fn new() -> Self {
+        Self {
+            instance: false,
+            hwnd: None,
+            border: 2.0,
+            corner_radius: 10.0,
+        }
+    }
+    pub fn update_border_attributes(&mut self, corner_radius: f32, thickness: f32) {
+        self.border = thickness;
+        self.corner_radius = corner_radius;
+        if self.instance {
+            is_hwnd!(self, |rect| {
+                unsafe {
+                    update_border_corner_radius(rect, corner_radius);
+                    update_border_thickness(rect, thickness);
+                }
+            });
+        }
+    }
+    pub fn update_border_rect(&mut self, app_info: &AppInfo) {
+        is_hwnd!(self, |rect| {
+            unsafe {
+                if let Ok(rect_border) = get_dwm_border_rect(hwnd!(app_info.hwnd), 2) {
+                    update_border_rect(rect, rect_border);
+                }
+            }
+        });
+    }
+    pub fn create_border_if_null(&mut self, app_info: &AppInfo) {
+        if self.instance {
+            is_hwnd!(self, |rect| {
+                unsafe {
+                    update_border_corner_radius(rect, self.corner_radius);
+                    if let Ok(rect_border) = get_dwm_border_rect(hwnd!(app_info.hwnd), 2) {
+                        update_border_rect(rect, rect_border);
+                    }
+                }
+            });
+        } else {
+            if let Ok(result) =
+                unsafe { create_transparent_border(hwnd!(app_info.hwnd), 0xAC3E31, self.border) }
+            {
+                self.hwnd = Some(result.0 as isize);
+                eprintln!("CREATE NEW");
+                self.instance = true
+            } else {
+                eprintln!("ERROR CREATING BORDER");
+            }
+        }
+    }
+}
 
 pub fn wm_event_channel() -> &'static (Sender<WindowManagerEvent>, Receiver<WindowManagerEvent>) {
     CHANNEL.get_or_init(|| flume::bounded(20))
@@ -45,6 +126,17 @@ pub fn wm_event_channel() -> &'static (Sender<WindowManagerEvent>, Receiver<Wind
 pub struct AppPosition {
     pub x: i32,
     pub y: i32,
+}
+impl AppPosition {
+    pub fn from_tuple(tuple: (i32, i32)) -> Self {
+        Self {
+            x: tuple.0,
+            y: tuple.0,
+        }
+    }
+    pub fn to_tuple(&self) -> (i32, i32) {
+        (self.x, self.y)
+    }
 }
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct AppSize {
@@ -147,8 +239,30 @@ fn timestamp<'a>() -> DelayedFormat<StrftimeItems<'a>> {
         chrono::Utc::now().format(format)
     }
 }
+// Zed.exe
+// zen.exe
+// wezterm-gui.exe
+// WhatsApp.Root.exe
+// chrome.exe
+// explorer.exe
+// explorer.exe
+// Microsoft.CmdPal.UI.exe
+// explorer.exe
+// explorer.exe
+// TextInputHost.exe
+// msedgewebview2.exe
+// explorer.exe
+// Registered event callback
+// tsck.exe
+// tsck.exe
+// Zed.exe
 
-static WHITELIST: [&'static str; 4] = ["zed", "notepad", "zen", "whatsapp.root"];
+static BLACKLIST: &[&str] = &[
+    "msedgewebview2.exe",
+    "TextInputHost.exe",
+    "Microsoft.CmdPal.UI.exe",
+];
+static WHITELIST: [&'static str; 5] = ["zed", "notepad", "zen", "whatsapp.root", "tsck"];
 
 pub struct ActiveAppInfos;
 impl ActiveAppInfos {
@@ -157,28 +271,105 @@ impl ActiveAppInfos {
             .iter()
             .for_each(|f| ActiveAppInfos::update_whitelist(f));
     }
+
     fn update_whitelist(app: &'static str) {
         let mut whitelist = APP_WHITELIST.lock();
         whitelist.push(app);
     }
-    fn allow(exe: &str) -> bool {
+    fn allow(exe: &str, title: &str) -> bool {
+        return !BLACKLIST.iter().any(|w| exe.eq_ignore_ascii_case(w));
         let name = std::path::Path::new(exe)
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or(exe);
 
-        APP_WHITELIST
+        // let allow = APP_WHITELIST
+        //     .lock()
+        //     .iter()
+        //     .any(|w| name.eq_ignore_ascii_case(w));
+
+        let allow = APP_WHITELIST.lock().iter().any(|w| {
+            if let Some(rest) = w.rfind(":") {
+                let strip = &w[rest + 1..w.len()];
+                return strip.eq_ignore_ascii_case(&title);
+            }
+
+            w.eq_ignore_ascii_case(&name)
+        });
+        println!("{} {} = {}", exe, title, allow);
+
+        allow
+    }
+
+    // pub fn with_app_list<R>(f: impl FnOnce(&HashMap<isize, AppInfo>) -> R) -> R {
+    //     let list = APP_INFO_LIST.lock();
+    //     f(&list)
+    // }
+    pub fn applist_get_all() -> Vec<AppInfo> {
+        let applist = APP_INFO_LIST
             .lock()
             .iter()
-            .any(|w| name.eq_ignore_ascii_case(w))
+            .map(|(_, a)| a.clone())
+            .collect::<Vec<_>>();
+        applist
     }
-    pub fn with_app_list<R>(f: impl FnOnce(&HashMap<isize, AppInfo>) -> R) -> R {
-        let list = APP_INFO_LIST.lock();
-        f(&list)
+    pub fn resize_window(app_info: &AppInfo, width: i32, height: i32) {
+        win::win_api::resize_window(HWND(app_info.hwnd as *mut c_void), width, height);
+
+        {
+            let mut list = APP_INFO_LIST.lock();
+            if let Some(ai) = list.get_mut(&app_info.hwnd) {
+                ai.size = AppSize { width, height };
+                Self::update_border(app_info);
+            }
+        }
+    }
+    pub fn bring_to_front(hwnd: isize) {
+        win::win_api::bring_to_front(hwnd!(hwnd));
+        APP_INFO_LIST.lock().iter().map(|(_, a)| {
+            if a.hwnd == hwnd {
+                Self::update_border(a);
+            }
+        });
+    }
+    pub fn move_window(app_info: &AppInfo, x: i32, y: i32) {
+        win::win_api::move_window(hwnd!(app_info.hwnd), x, y);
+
+        {
+            let mut list = APP_INFO_LIST.lock();
+            if let Some(ai) = list.get_mut(&app_info.hwnd) {
+                ai.position = AppPosition { x, y };
+                Self::update_border(app_info);
+            }
+        }
     }
     pub fn with_app_list_mut<R>(f: impl FnOnce(&mut HashMap<isize, AppInfo>) -> R) -> R {
         let mut list = APP_INFO_LIST.lock();
         f(&mut list)
+    }
+
+    pub fn maximize_window() {
+        let hwnd = unsafe { GetForegroundWindow() };
+        if !hwnd.is_invalid() {
+            win::win_api::maximize_window(hwnd);
+        }
+    }
+    pub fn get_active_app() -> Option<AppInfo> {
+        let hwnd = unsafe { GetForegroundWindow() };
+        if !hwnd.is_invalid() {
+            if let Some((_, appinfo)) = APP_INFO_LIST
+                .lock()
+                .iter()
+                .find(|p| p.0 == &(hwnd.0 as isize))
+            {
+                let t = appinfo.clone();
+                return Some(t);
+            } else {
+                return None;
+            }
+        } else {
+            None
+        }
     }
 
     pub fn debug_list() {
@@ -187,12 +378,30 @@ impl ActiveAppInfos {
             .for_each(|(_id, i)| println!("{:>10} {}", i.hwnd, i.exe));
         println!("{} \x1b[3m[{}]\x1b[0m", "=".repeat(20), timestamp());
     }
+
+    fn update_border(info: &AppInfo) {
+        {
+            return;
+            BORDER_MANAGER.lock().update_border_rect(&info);
+        }
+    }
     pub fn update_app_list(info: AppInfo, status: AppStatus) {
-        if Self::allow(&info.exe) {
+        if Self::allow(&info.exe, &info.title) {
             let mut list = APP_INFO_LIST.lock();
             let exe_name = info.exe.clone();
+
             match status {
-                AppStatus::Create | AppStatus::Update | AppStatus::Init => {
+                AppStatus::Create | AppStatus::Init => {
+                    // BORDER_MANAGER.lock().create_border_if_null(&info);
+                    if let Some(old_info) = list.get_mut(&info.hwnd) {
+                        *old_info = info;
+                    } else {
+                        list.insert(info.hwnd, info);
+                    }
+                }
+
+                AppStatus::Update => {
+                    // BORDER_MANAGER.lock().update_border_rect(&info);
                     if let Some(old_info) = list.get_mut(&info.hwnd) {
                         *old_info = info;
                     } else {
@@ -301,7 +510,8 @@ pub fn spawn_win_callback_service() {
             Some(win_event_hook),
             0,
             0,
-            WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS,
+            WINEVENT_OUTOFCONTEXT,
+            // WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS,
         )
     };
     let mut msg: MSG = MSG::default();
@@ -315,24 +525,6 @@ pub fn spawn_win_callback_service() {
         }
         std::thread::sleep(Duration::from_millis(10));
     }
-}
-#[derive(Debug, Clone)]
-pub struct BorderInfo {
-    border_hwnd: isize,
-    window_kind: WinKind,
-}
-impl BorderInfo {
-    fn hwnd(&self) -> HWND {
-        HWND(self.border_hwnd as *mut std::ffi::c_void)
-    }
-}
-
-pub fn window_border(hwnd: isize) -> Option<BorderInfo> {
-    let id = WINDOWS_BORDERS.lock().get(&hwnd)?.clone();
-    BORDER_STATE.lock().get(&id).map(|b| BorderInfo {
-        border_hwnd: b.hwnd,
-        window_kind: b.window_kind,
-    })
 }
 
 pub extern "system" fn wc_init_applist(hwnd: HWND, lparam: LPARAM) -> BOOL {
@@ -380,54 +572,52 @@ pub extern "system" fn win_event_hook(
     if id_object != OBJID_WINDOW.0 || id_child != 0 {
         return;
     }
-    if unsafe { GetAncestor(hwnd, GA_ROOT) } != hwnd {
+    if unsafe { GetAncestor(hwnd, GA_ROOTOWNER) } != hwnd {
         return;
     }
 
-    let style = WINDOW_STYLE(unsafe { GetWindowLongW(hwnd, GWL_STYLE) } as u32);
-    if !style.contains(WS_OVERLAPPEDWINDOW) {
-        return;
-    }
-
-    let ex_style = WINDOW_EX_STYLE(unsafe { GetWindowLongW(hwnd, GWL_EXSTYLE) } as u32);
-    if ex_style.contains(WS_EX_TOOLWINDOW) {
-        return;
-    }
-
-    if hwnd.is_invalid() {
-        return;
-    }
-
+    // if unsafe { GetAncestor(hwnd, GA_ROOT) } != hwnd {
+    //     return;
+    // }
     let window = Window::from(hwnd);
+
     let win_event = match WinEvent::try_from(event) {
         Ok(event) => event,
         Err(_) => return,
     };
-
-    // if matches!(
-    //     win_event,
-    //     WinEvent::ObjectLocationChange | WinEvent::ObjectDestroy
-    // ) {
-    //     let border_info = window_border(hwnd.0 as isize);
-    //     if let Some(border_info) = border_info {
-    //         unsafe {
-    //             _ = SendNotifyMessageW(
-    //                 border_info.hwnd(),
-    //                 event,
-    //                 WPARAM(0),
-    //                 LPARAM(hwnd.0 as isize),
-    //             );
-    //         }
-    //     }
-    // }
-
-    let event = match WindowManagerEvent::from_win_event(win_event, window) {
+    let event_out = match WindowManagerEvent::from_win_event(win_event, window) {
         None => {
             return;
         }
         Some(event) => event,
     };
-    wm_event_tx().send(event).expect("could not send event");
+    if matches!(event, EVENT_OBJECT_DESTROY) {
+        let window = Window::from(hwnd);
+        wm_event_tx().send(event_out).expect("could not send event");
+        return;
+    }
+
+    if unsafe { IsWindowVisible(hwnd) }.as_bool() == false {
+        return;
+    }
+
+    let length = unsafe { GetWindowTextLengthW(hwnd) };
+    if length == 0 {
+        return;
+    }
+    let style = WINDOW_STYLE(unsafe { GetWindowLongW(hwnd, GWL_STYLE) } as u32);
+    if !style.contains(WS_OVERLAPPEDWINDOW) {
+        return;
+    }
+    let ex_style = WINDOW_EX_STYLE(unsafe { GetWindowLongW(hwnd, GWL_EXSTYLE) } as u32);
+    if ex_style.contains(WS_EX_TOOLWINDOW) {
+        return;
+    }
+    if hwnd.is_invalid() {
+        return;
+    }
+
+    wm_event_tx().send(event_out).expect("could not send event");
 }
 
 fn collect_event(event: String) {
@@ -454,7 +644,48 @@ mod mod_win {
     }
 
     #[test]
-    fn test_service() {
-        crate::win::api::app_begin();
+    fn test_slice() {
+        let texts = &["T:TSCKBROWSER", "ZEN"];
+        for text in texts {
+            if let Some(idx) = text.rfind(':') {
+                let t2 = &text[idx + 1..text.len()];
+                println!("PAGETITLE : {}", t2);
+            } else {
+                println!("APP {}", text);
+            }
+        }
+    }
+    #[test]
+    fn allow() {
+        let exe = "tsck.exe";
+        let tsck_title = "TSCK-BROWSER";
+
+        let find_title = {
+            if let Some(idx) = tsck_title.rfind(':') {
+                &tsck_title[idx + 1..tsck_title.len()]
+            } else {
+                ""
+            }
+        };
+
+        let name = std::path::Path::new(exe)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(exe);
+
+        fn parse_title(title: &str, tsck_title: &str) -> bool {
+            title
+                .rsplit_once(':')
+                .map_or(false, |(_, suffix)| suffix.eq_ignore_ascii_case(tsck_title))
+        }
+        let some = WHITELIST.iter().any(|w| {
+            if let Some(rest) = w.rfind(":") {
+                let strip = &w[rest + 1..w.len()];
+                return strip.eq_ignore_ascii_case(&tsck_title);
+            }
+
+            w.eq_ignore_ascii_case(&name)
+        });
+        println!("{}{}", exe, some);
     }
 }

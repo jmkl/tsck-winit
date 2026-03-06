@@ -1,3 +1,4 @@
+#[cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod app;
 mod app_config;
 mod cmd;
@@ -10,6 +11,7 @@ mod photoshop;
 mod protocol;
 mod store;
 mod utils;
+mod workspace_manager;
 use crate::app::TsckApp;
 use crate::app_config::{AppConfig, AppConfigHandler};
 use crate::cmd::{CmdrHelper, CommandConfig};
@@ -20,15 +22,19 @@ use crate::photoshop::{PaginationItems, SmartObjectItem, SmartObjects, TextureRe
 use crate::store::config::WindowConf;
 use crate::store::{DbStore, PageChunk, Texture};
 use crate::utils::winview_util::webview_bounds;
+use crate::workspace_manager::WorkspaceManager;
 use flume::{Receiver, Sender, unbounded};
 use parking_lot::Mutex;
 use rust_embed_for_web::RustEmbed;
 use serde::Serialize;
 use std::collections::HashMap;
+use std::io::Write;
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
+use std::thread;
+use std::time::Duration;
 use tsck_utils::ConfigStore;
 use winit::event_loop::{EventLoop, EventLoopProxy};
 use winit::window::Window;
@@ -48,6 +54,15 @@ struct WindowState {
     win_level: Arc<Mutex<WinLevel>>,
 }
 
+static WORKSPACE_MANAGER: OnceLock<Mutex<WorkspaceManager>> = OnceLock::new();
+pub fn workspace_manager<F>(f: F)
+where
+    F: FnOnce(&mut WorkspaceManager),
+{
+    let wm = WORKSPACE_MANAGER.get_or_init(|| Mutex::new(WorkspaceManager::new()));
+    let mut guard = wm.lock();
+    f(&mut guard);
+}
 #[allow(unused)]
 impl WindowState {
     fn new(
@@ -127,6 +142,7 @@ impl ChannelBus {
         })
     }
     pub fn init(self) -> Self {
+        _ = self.init_global_window_service();
         _ = self.init_hotkee();
         _ = self.init_file_server();
         self
@@ -136,6 +152,74 @@ impl ChannelBus {
         let sender = self.sender.clone();
         std::thread::spawn(|| {
             _ = __spawn_hotkee(proxy, sender);
+        });
+    }
+
+    fn init_global_window_service(&self) {
+        let sender = self.sender.clone();
+        let proxy = self.proxy.clone();
+        tsck_kee::api::app_begin(|rx| {
+            std::thread::spawn(move || {
+                while let Ok(event) = rx.recv() {
+                    match event {
+                        tsck_kee::api::WindowEvent::Delete(hwnd) => {
+                            log_debug!("DESTROY");
+
+                            workspace_manager(|f| {
+                                f.on_event(
+                                    workspace_manager::WorkspaceApiEvent::Delete(hwnd),
+                                    sender.clone(),
+                                    proxy.clone(),
+                                );
+                            });
+                        }
+                        tsck_kee::api::WindowEvent::Create => {
+                            workspace_manager(|f| {
+                                f.on_event(
+                                    workspace_manager::WorkspaceApiEvent::Create,
+                                    sender.clone(),
+                                    proxy.clone(),
+                                );
+                            });
+                        }
+                        tsck_kee::api::WindowEvent::FocusChange => {
+                            workspace_manager(|f| {
+                                f.on_event(
+                                    workspace_manager::WorkspaceApiEvent::FocusChange,
+                                    sender.clone(),
+                                    proxy.clone(),
+                                );
+                            });
+                        }
+                        tsck_kee::api::WindowEvent::Update => {
+                            workspace_manager(|f| {
+                                f.on_event(
+                                    workspace_manager::WorkspaceApiEvent::Update,
+                                    sender.clone(),
+                                    proxy.clone(),
+                                );
+                            });
+                        }
+                        tsck_kee::api::WindowEvent::Unknown(ev) => {
+                            log_debug!("UNKNOW", &ev);
+                            workspace_manager(|f| {
+                                f.on_event(
+                                    workspace_manager::WorkspaceApiEvent::Unknown(ev),
+                                    sender.clone(),
+                                    proxy.clone(),
+                                );
+                            });
+                        }
+                    }
+                }
+            });
+        });
+        thread::spawn(|| {
+            std::thread::sleep(Duration::from_millis(1000));
+            workspace_manager(|f| {
+                let apps = tsck_kee::api::app_get_all();
+                f.add_entries(&apps);
+            });
         });
     }
 
@@ -375,6 +459,59 @@ fn edit_config(app_name: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn print_command() {
+    println!(
+        r#"
+wm list       : list all active_entries
+wm active     : get active workspace
+wm cycle      : cycle active workspace
+wm next       : activate next workspace
+wm reset      : reset all workspace
+"#
+    );
+}
+
+fn spawn_input() {
+    std::thread::spawn(|| -> anyhow::Result<()> {
+        loop {
+            std::io::stdout().flush()?;
+            let mut input = String::new();
+            std::io::stdin().read_line(&mut input)?;
+            let input = input.trim();
+            match input {
+                "wm list" => {
+                    workspace_manager(|wm| {
+                        for entries in wm.get_entries() {
+                            println!(
+                                "{} {} {:?}",
+                                entries.app, entries.workspace, entries.real_pos
+                            );
+                        }
+                    });
+                }
+                "wm active" => {
+                    workspace_manager(|wm| {});
+                }
+                "wm cycle" => {
+                    workspace_manager(|wm| {});
+                }
+                "wm next" => {
+                    workspace_manager(|wm| {});
+                }
+                "wm reset" => {
+                    workspace_manager(|wm| {});
+                }
+                "exit" => {
+                    std::process::exit(69);
+                }
+                _ => {
+                    print_command();
+                }
+            }
+        }
+    });
+}
+
 fn main() -> anyhow::Result<()> {
     let args: Vec<_> = std::env::args().collect();
     if args.len() > 1 {
@@ -394,7 +531,7 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
     {
-        #[cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+        spawn_input();
         let event_loop = EventLoop::new()?;
         event_loop.listen_device_events(winit::event_loop::DeviceEvents::Never);
         let bus = Arc::new(

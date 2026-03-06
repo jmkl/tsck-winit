@@ -12,6 +12,7 @@ use crate::{
     store::config::{ToolbarPanel, WindowPosition, WindowSize},
     ts_struct,
     utils::animation::AnimationPayload,
+    workspace_manager::{WorkspaceEntry, WorkspacePayload},
 };
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -111,7 +112,6 @@ pub enum UserEvent {
     TransformWindow(AnimationPayload),
     SetIgnoreCursorEvent(bool),
     GoogleDownloadImage(String),
-    ActivateWorkSpace(i32),
     CyclePages(i32),
     GetActiveWindows,
     IncomingWebsocketMessage(u32, String),
@@ -179,6 +179,10 @@ pub enum UserEvent {
         #[serde(rename = "type")]
         msg_type: String,
     },
+
+    WorkspaceAppFocusChange(i32),
+    RequestWorkspacePayload,
+    WorkspaceSendPayload(WorkspacePayload),
 }
 ts_struct! {path = TS_PATH,
     #[serde(untagged)]

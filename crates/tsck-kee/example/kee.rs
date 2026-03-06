@@ -40,7 +40,7 @@ fn find_window(search_mode: SearchMode, payload: &str) {
 }
 
 fn main() -> anyhow::Result<()> {
-    let mut kee = Kee::new();
+    let mut kee = Kee::new(true);
     let kees = kpairs! {
             (M-1	=>	app::FOO),
             (M-2	=>	app::BAR)

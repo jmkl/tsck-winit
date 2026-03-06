@@ -4,19 +4,27 @@ use anyhow::{Context, Result};
 use std::{ffi::OsString, os::windows::ffi::OsStringExt};
 use windows::{
     Win32::{
-        Foundation::{CloseHandle, HANDLE, HWND, LPARAM, RECT},
+        Foundation::{CloseHandle, FALSE, HANDLE, HWND, LPARAM, RECT, TRUE},
         System::Threading::{
-            OpenProcess, PROCESS_ACCESS_RIGHTS, PROCESS_NAME_FORMAT, PROCESS_QUERY_INFORMATION,
-            PROCESS_VM_READ, QueryFullProcessImageNameW,
+            AttachThreadInput, GetCurrentThreadId, OpenProcess, PROCESS_ACCESS_RIGHTS,
+            PROCESS_NAME_FORMAT, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ,
+            QueryFullProcessImageNameW,
         },
-        UI::WindowsAndMessaging::{
-            EnumWindows, GetClassNameW, GetWindowRect, GetWindowTextLengthW, GetWindowTextW,
-            GetWindowThreadProcessId,
+        UI::{
+            Input::KeyboardAndMouse::{SetActiveWindow, SetFocus},
+            WindowsAndMessaging::{
+                BringWindowToTop, EnumWindows, GetClassNameW, GetForegroundWindow, GetWindowRect,
+                GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, HWND_NOTOPMOST,
+                HWND_TOP, HWND_TOPMOST, IsIconic, IsWindow, IsWindowVisible, IsZoomed, SW_MAXIMIZE,
+                SW_MINIMIZE, SW_RESTORE, SW_SHOW, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+                SetForegroundWindow, SetWindowPos, ShowWindow,
+            },
         },
     },
     core::PWSTR,
 };
 
+#[macro_export]
 macro_rules! as_ptr {
     ($value:expr) => {
         $value as *mut core::ffi::c_void
@@ -117,6 +125,106 @@ pub fn get_process_path(hwnd: HWND) -> Option<String> {
         }
     }
 }
+pub fn move_window(hwnd: HWND, x: i32, y: i32) {
+    if unsafe { IsWindow(Some(hwnd)) } == FALSE {
+        return;
+    }
+    unsafe { SetWindowPos(hwnd, Some(HWND_TOP), x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER) };
+}
+pub fn resize_window(hwnd: HWND, width: i32, height: i32) {
+    if unsafe { IsWindow(Some(hwnd)) } == FALSE {
+        return;
+    }
+    unsafe {
+        SetWindowPos(
+            hwnd,
+            Some(HWND_TOP),
+            0,
+            0,
+            width,
+            height,
+            SWP_NOMOVE | SWP_NOZORDER,
+        )
+    };
+}
+pub fn toggle_top_most(hwnd: HWND, top_most: bool) {
+    if unsafe { IsWindow(Some(hwnd)) } == FALSE {
+        return;
+    }
+    let hwnd_after = if top_most {
+        HWND_TOPMOST
+    } else {
+        HWND_NOTOPMOST
+    };
+    unsafe { SetWindowPos(hwnd, Some(hwnd_after), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE) };
+}
+pub fn maximize_window(hwnd: HWND) {
+    unsafe {
+        if IsWindow(Some(hwnd)) == FALSE {
+            return;
+        }
+        if IsZoomed(hwnd) == TRUE {
+            ShowWindow(hwnd, SW_RESTORE);
+        } else {
+            ShowWindow(hwnd, SW_MAXIMIZE);
+        }
+    }
+}
+pub fn bring_to_front(hwnd: HWND) {
+    unsafe {
+        if IsWindow(Some(hwnd)) == FALSE {
+            return;
+        }
+        if IsIconic(hwnd) == TRUE {
+            ShowWindow(hwnd, SW_RESTORE);
+        }
+        if SetForegroundWindow(hwnd).as_bool() == TRUE {
+            return;
+        }
+        force_bring_to_front(hwnd);
+    }
+}
+fn force_bring_to_front(hwnd: HWND) {
+    unsafe {
+        // Get the foreground window
+        let foreground_hwnd = GetForegroundWindow();
+
+        // Get thread IDs
+        let foreground_thread =
+            GetWindowThreadProcessId(foreground_hwnd, Some(std::ptr::null_mut()));
+        let target_thread = GetWindowThreadProcessId(hwnd, Some(std::ptr::null_mut()));
+        let current_thread = GetCurrentThreadId();
+
+        // Attach to the foreground thread to gain permission
+        if foreground_thread != current_thread {
+            AttachThreadInput(current_thread, foreground_thread, true);
+        }
+        if target_thread != current_thread && target_thread != foreground_thread {
+            AttachThreadInput(current_thread, target_thread, true);
+        }
+
+        // Bring window to front
+        BringWindowToTop(hwnd);
+        ShowWindow(hwnd, SW_SHOW);
+        SetForegroundWindow(hwnd);
+        SetFocus(Some(hwnd));
+        SetActiveWindow(hwnd);
+
+        // Detach threads
+        if foreground_thread != current_thread {
+            AttachThreadInput(current_thread, foreground_thread, false);
+        }
+        if target_thread != current_thread && target_thread != foreground_thread {
+            AttachThreadInput(current_thread, target_thread, false);
+        }
+    }
+}
+pub fn is_minimized(hwnd: HWND) -> bool {
+    { (unsafe { IsIconic(hwnd) }) == TRUE }
+}
+pub fn is_visible(hwnd: HWND) -> bool {
+    { (unsafe { IsWindowVisible(hwnd) }) == TRUE }
+}
 pub fn exe(hwnd: HWND) -> Option<String> {
     let result = get_process_path(hwnd)?.split('\\').next_back()?.to_string();
     Some(result)
@@ -161,11 +269,9 @@ pub fn real_window_class_w(hwnd: HWND) -> Option<String> {
 
 #[cfg(test)]
 mod test_winapi {
-    use std::time::Instant;
-
-    use crate::win::win_api;
-
     use super::*;
+    use crate::win::win_api;
+    use std::time::Instant;
     #[test]
     fn list_active_app() {
         for i in 0..10 {

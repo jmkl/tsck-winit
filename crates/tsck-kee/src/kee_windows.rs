@@ -720,41 +720,6 @@ unsafe extern "system" fn enum_windows_callback(hwnd: Hwnd, lparam: LParam) -> B
     TRUE // Continue enumeration
 }
 
-unsafe extern "system" fn win_event_proc(
-    _h_win_event_hook: HWINEVENTHOOK,
-    _event: u32,
-    hwnd: HWND,
-    _id_object: i32,
-    _id_child: i32,
-    _id_event_thread: u32,
-    _dwms_event_time: u32,
-) {
-    let hwnd = hwnd.0;
-    let class_name = get_class_name(hwnd).unwrap_or_else(|| String::from("UNKNOWN_CLASS"));
-
-    // Get window title
-    let title = match get_window_title(hwnd) {
-        Some(t) if !t.is_empty() => t,
-        _ => return, // Skip windows without titles
-    };
-    let (size, position) = get_window_size_and_position(hwnd);
-    // Get process executable path
-    let exe_path = get_process_path(hwnd).unwrap_or_else(|| String::from("UNKNOWN_EXE_PATH"));
-    let (y, h) = (position.y, size.height);
-    let win_info = WindowInfo {
-        hwnd: SafeHWND::new(hwnd),
-        title,
-        exe_path,
-        class_name,
-        size,
-        position,
-        workspace: get_current_workspace(y, h),
-    };
-    if let Some(tx) = CALLBACK_CHANNEL.get() {
-        let _ = tx.try_send(KeeEvent::OnWindowChange(win_info));
-    }
-}
-
 unsafe extern "system" fn enum_monitor_callback(
     hmonitor: HMonitor,
     _hdc: Hdc,
@@ -971,28 +936,6 @@ pub fn find_windows_by_title(title: &str) -> Vec<WindowInfo> {
         .into_iter()
         .filter(|w| w.title.to_lowercase().contains(&search))
         .collect()
-}
-
-pub fn spawn_active_window_listener() {
-    unsafe {
-        let hook = SetWinEventHook(
-            EVENT_SYSTEM_FOREGROUND,
-            EVENT_SYSTEM_FOREGROUND,
-            None,
-            Some(win_event_proc),
-            0,
-            0,
-            WINEVENT_OUTOFCONTEXT,
-        );
-
-        let mut msg = MSG::default();
-        while GetMessageW(&mut msg, None, 0, 0).0 > 0 {
-            // _ = TranslateMessage(&msg);
-            // _ = DispatchMessageW(&msg);
-        }
-
-        UnhookWinEvent(hook);
-    }
 }
 
 #[cfg(test)]
